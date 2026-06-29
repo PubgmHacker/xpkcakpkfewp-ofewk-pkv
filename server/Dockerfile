@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════════════════════════
-#  RaveClone Backend — Dev Image
+#  RaveClone Backend — Production Image
 #
 #  Базовый образ: Debian slim (НЕ Alpine!).
 #  Причина: Prisma binary engine требует OpenSSL 1.1.x и glibc.
@@ -34,9 +34,6 @@ RUN npm install --legacy-peer-deps
 # Копируем исходный код
 COPY . .
 
-# Генерируем Prisma клиент
-RUN npx prisma generate
-
 # Переменные для Prisma в Docker (явно указываем бинарный engine)
 ENV PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING=1
 
@@ -46,5 +43,5 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD wget -qO- http://localhost:3000/health || exit 1
 
-# Запуск через tsx watch (dev-режим, hot-reload)
-CMD ["npx", "tsx", "watch", "src/index.ts"]
+# Production start: generate Prisma client, then run server via tsx
+CMD ["sh", "-c", "npx prisma generate && npx tsx src/index.ts"]
