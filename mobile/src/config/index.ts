@@ -14,7 +14,7 @@
 
 // ─── ПРОДАКШЕН URL (замените после деплоя на Railway) ───────────────────────
 // Формат: https://ваш-проект.up.railway.app
-const PROD_URL = "https://raveclone-production.up.railway.app";
+const PROD_URL = "https://xpkcakpkfewp-ofewk-pkv-production.up.railway.app";
 
 // ─── ЛОКАЛЬНЫЙ URL (для симулятора) ─────────────────────────────────────────
 const DEV_URL = "http://localhost:3000";
