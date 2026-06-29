@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Voice over IP (required for WebRTC voice chat background mode) -->
+    <key>com.apple.developer.networking.multitasking</key>
+    <array>
+        <string>voip</string>
+    </array>
+
+    <!-- Background Audio (for media playback while app is in background) -->
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>audio</string>
+        <string>voip</string>
+    </array>
+
+    <!-- Associated Domains (for Universal Links / deep linking room codes) -->
+    <key>com.apple.developer.associated-domains</key>
+    <array>
+        <string>applinks:raveclone.app</string>
+    </array>
+
+    <!-- Push Notifications (for friend invites, room join notifications) -->
+    <!-- Uncomment when adding push:
+    <key>aps-environment</key>
+    <string>development</string>
+    -->
+</dict>
+</plist>

@@ -1,0 +1,32 @@
+{
+  "expo": {
+    "name": "RaveClone",
+    "slug": "raveclone",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "scheme": "raveclone",
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#0F0F17"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.raveclone.app",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "RaveClone использует микрофон для голосового чата во время совместного просмотра.",
+        "NSLocalNetworkUsageDescription": "RaveClone нужен доступ к локальной сети для подключения к серверу.",
+        "NSCameraUsageDescription": "RaveClone использует камеру для видеозвонков с друзьями."
+      }
+    },
+    "android": {
+      "package": "com.raveclone.app",
+      "permissions": ["android.permission.RECORD_AUDIO", "android.permission.INTERNET"]
+    },
+    "extra": {
+      "eas": {
+        "projectId": "your-eas-project-id"
+      }
+    }
+  }
+}

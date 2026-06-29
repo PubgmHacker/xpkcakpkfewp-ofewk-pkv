@@ -1,0 +1,9 @@
+app_identifier("com.raveclone.app")        # Bundle ID приложения
+apple_id("your-apple-id@email.com")          # Apple Developer Account email
+itc_team_id("XXXXXXXXXX")                    # App Store Connect Team ID
+team_id("YYYYYYYYYY")                        # Apple Developer Portal Team ID
+
+# Для разных окружений можно переопределять:
+# for_lane :beta do
+#   app_identifier("com.raveclone.app.beta")
+# end

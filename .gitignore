@@ -1,0 +1,63 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Expo / React Native
+.expo/
+dist/
+web-build/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+ios/Pods/
+ios/build/
+android/build/
+android/.gradle/
+
+# Native (Xcode)
+*.xcuserstate
+ios/.bundle/
+ios/xcuserdata/
+android/gradlew.bat
+
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+*.env
+!*.env.example
+
+# Docker
+docker-compose.override.yml
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build outputs
+server/dist/
+server/node_modules/
+mobile/node_modules/
+
+# Prisma
+server/prisma/migrations/dev.db*
+
+# EAS
+.easignore
+
+# Session files
+sess_*_history.md

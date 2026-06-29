@@ -1,0 +1,189 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- App Info -->
+    <key>CFBundleName</key>
+    <string>SyncWatch</string>
+    <key>CFBundleDisplayName</key>
+    <string>SyncWatch</string>
+    <key>CFBundleIdentifier</key>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleExecutable</key>
+    <string>$(EXECUTABLE_NAME)</string>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>LSRequiresIPhoneOS</key>
+    <true/>
+
+    <!-- App Category & Role -->
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.entertainment</string>
+
+    <!-- Minimum iOS version -->
+    <key>MinimumOSVersion</key>
+    <string>17.0</string>
+
+    <!-- Required Device Capabilities -->
+    <key>UIRequiredDeviceCapabilities</key>
+    <array>
+        <string>armv7</string>
+        <string>wifi</string>
+        <string>microphone</string>
+    </array>
+
+    <!-- ============================================ -->
+    <!-- PERMISSIONS — Required for App Store Review  -->
+    <!-- ============================================ -->
+
+    <!-- Microphone: Voice chat (WebRTC VoIP) -->
+    <key>NSMicrophoneUsageDescription</key>
+    <string>SyncWatch uses your microphone for voice chat during room sessions. Your audio is end-to-end encrypted and is never stored.</string>
+
+    <!-- Camera: Future video call support (NOT used in v1 but ready) -->
+    <!-- Uncomment when adding video chat:
+    <key>NSCameraUsageDescription</key>
+    <string>SyncWatch uses your camera for video chat with friends in rooms.</string>
+    -->
+
+    <!-- Bluetooth: Optional for audio device pairing -->
+    <!-- Uncomment if needed:
+    <key>NSBluetoothAlwaysUsageDescription</key>
+    <string>SyncWatch uses Bluetooth to connect to wireless audio devices.</string>
+    -->
+
+    <!-- Local Network: WebSocket connections to local media servers (Plex/Jellyfin) -->
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>SyncWatch needs local network access to connect to personal media servers like Plex and Jellyfin on your home network.</string>
+    <key>NSBonjourServices</key>
+    <array>
+        <string>_http._tcp</string>
+        <string>_https._tcp</string>
+    </array>
+
+    <!-- Background Modes -->
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>audio</string>
+        <string>voip</string>
+    </array>
+
+    <!-- Audio Session Category (for background audio) -->
+    <!-- Handled programmatically via AVAudioSession -->
+
+    <!-- ============================================ -->
+    <!-- APP TRANSPORT SECURITY                        -->
+    <!-- ============================================ -->
+
+    <!-- Allow connections to local media servers (Plex/Jellyfin) over HTTP -->
+    <!-- Production: Remove this and only allow HTTPS -->
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsArbitraryLoads</key>
+        <false/>
+        <key>NSAllowsLocalNetworking</key>
+        <true/>
+        <key>NSExceptionDomains</key>
+        <dict>
+            <!-- Plex local server -->
+            <key>localhost</key>
+            <dict>
+                <key>NSExceptionAllowsInsecureHTTPLoads</key>
+                <true/>
+            </dict>
+            <!-- Add your local media server IPs here -->
+        </dict>
+    </dict>
+
+    <!-- ============================================ -->
+    <!-- SUPPORTED ORIENTATIONS                         -->
+    <!-- ============================================ -->
+
+    <key>UISupportedInterfaceOrientations</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+
+    <key>UISupportedInterfaceOrientations~iPad</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationPortraitUpsideDown</string>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+
+    <!-- ============================================ -->
+    <!-- STATUS BAR                                     -->
+    <!-- ============================================ -->
+
+    <key>UIStatusBarStyle</key>
+    <string>UIStatusBarStyleLightContent</string>
+    <key>UIViewControllerBasedStatusBarAppearance</key>
+    <true/>
+
+    <!-- ============================================ -->
+    <!-- FILE SHARING (for importing local media)       -->
+    <!-- ============================================ -->
+
+    <key>UIFileSharingEnabled</key>
+    <true/>
+    <key>LSSupportsOpeningDocumentsInPlace</key>
+    <true/>
+
+    <!-- ============================================ -->
+    <!-- DEEP LINKS (for room code URLs)                -->
+    <!-- ============================================ -->
+
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>raveclone</string>
+            </array>
+            <key>CFBundleURLName</key>
+            <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+        </dict>
+    </array>
+
+    <!-- Universal Links (for shared room links) -->
+    <key>com.apple.developer.associated-domains</key>
+    <array>
+        <string>applinks:raveclone.app</string>
+    </array>
+
+    <!-- ============================================ -->
+    <!-- PRIVACY MANIFEST (iOS 17+)                     -->
+    <!-- ============================================ -->
+    <!--
+        Required: PrivacyInfo.xcprivacy file in project
+        Contains:
+        - NSPrivacyAccessedAPICategoryFileTimestamp
+        - NSPrivacyAccessedAPICategoryDiskSpace
+        - NSPrivacyTracking (false)
+        See: PrivacyInfo.xcprivacy in Resources/
+    -->
+
+    <!-- ============================================ -->
+    <!-- USAGE STRINGS FOR APP STORE REVIEW             -->
+    <!-- ============================================ -->
+
+    <!-- These are the strings shown when iOS asks for permission.
+       Make them clear, specific, and explain WHY the permission is needed.
+       Reviewers WILL reject vague descriptions. -->
+
+    <!-- Example rejection fixes:
+       BAD:  "This app needs microphone access"
+       GOOD: "SyncWatch uses your microphone for voice chat during room sessions.
+              Audio is encrypted and never stored."
+    -->
+</dict>
+</plist>

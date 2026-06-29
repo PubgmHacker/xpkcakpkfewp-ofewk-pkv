@@ -1,0 +1,14 @@
+git_url(ENV["MATCH_GIT_URL"])
+
+# Режим только-чтение в CI (сертификаты не должны меняться в CI)
+storage_mode("git")
+
+# Тип профиля по умолчанию
+type("appstore")
+
+# Для дополнительных команд:
+#   fastlane match appstore              — сертификаты для релиза
+#   fastlane match development           — dev-сертификаты
+#   fastlane match nuke distribution     — сброс cert (осторожно!)
+app_identifier([ENV["APP_IDENTIFIER"] || "com.raveclone.app"])
+username(ENV["APPLE_ID"] || "your-apple-id@email.com")

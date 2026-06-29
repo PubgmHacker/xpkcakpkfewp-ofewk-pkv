@@ -1,0 +1,90 @@
+# ═══════════════════════════════════════════════════════════════════════════
+#  RaveClone — Быстрый старт (БД + Redis + Бэкенд одной командой)
+#
+#  Запуск из корня проекта:
+#    docker compose -f docker-compose.quickstart.yml up -d
+#
+#  Логи бэкенда:
+#    docker compose -f docker-compose.quickstart.yml logs -f app
+#
+#  Остановка:
+#    docker compose -f docker-compose.quickstart.yml down
+# ═══════════════════════════════════════════════════════════════════════════
+
+name: raveclone
+
+services:
+
+  # ─── PostgreSQL (база данных) ──────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: raveclone-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: raveclone
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 3s
+      timeout: 5s
+      retries: 10
+
+  # ─── Redis (стейт комнат, кэш, online-статусы) ────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: raveclone-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  # ─── Бэкенд (Node.js + Fastify + WebSocket) ───────────────────────────────
+  # Слушает 0.0.0.0:3000 → доступен с iPhone по Wi-Fi
+  app:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: raveclone-app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      # Важно: 0.0.0.0 внутри контейнера — наружу проброшен 3000
+      HOST: "0.0.0.0"
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/raveclone?schema=public
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: dev-secret-change-in-production
+      JWT_EXPIRES_IN: 7d
+      CORS_ORIGIN: "*"
+      YTDLP_PATH: yt-dlp
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # Ждём БД → накатываем схему → запускаем dev-сервер
+    command: >
+      sh -c "
+        echo '[backend] Ожидание БД...' &&
+        npx prisma db push --accept-data-loss &&
+        echo '[backend] Схема применена. Старт сервера на 0.0.0.0:3000...' &&
+        npm run dev
+      "
+
+volumes:
+  postgres_data:
+  redis_data:

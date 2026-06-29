@@ -1,0 +1,153 @@
+// Prisma Schema — RaveClone Backend
+// PostgreSQL + Redis (for real-time state)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Роли пользователей (глобальные права) ────────────────────
+enum UserRole {
+  USER       // обычный пользователь
+  MODERATOR  // модератор конкретной комнаты (назначается основателем)
+  FOUNDER    // основатель комнаты (хост)
+  ADMIN      // глобальный администратор приложения (Super Admin)
+}
+
+// ─── Users ────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(nanoid(16))
+  username     String   @unique
+  email        String   @unique
+  passwordHash String
+  avatarURL    String?
+  fcmToken     String?                      // Firebase Cloud Messaging token
+
+  // ─── Роли и привилегии ────────────────────────────────────
+  // user | moderator | founder | admin
+  role         UserRole @default(USER)
+  isPremium    Boolean  @default(false)
+  premiumUntil DateTime?
+
+  // ─── Модерация / баны ──────────────────────────────────────
+  warningsCount Int      @default(0)
+  bannedUntil   DateTime?
+  bannedReason  String?
+
+  isOnline     Boolean  @default(false)
+  lastSeenAt   DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  hostedRooms   Room[]      @relation("Host")
+  roomMemberships Membership[]
+  sentInvites   Invite[]    @relation("Inviter")
+  receivedInvites Invite[]  @relation("Invitee")
+  messages      ChatMessage[]
+  reports       RoomReport[]
+
+  @@map("users")
+}
+
+// ─── Rooms ───────────────────────────────────────────
+
+model Room {
+  id              String   @id @default(nanoid(16))
+  name            String
+  code            String   @unique                 // 6-char shareable code
+  hostID          String
+  hostName        String
+  isActive        Boolean  @default(true)
+  maxParticipants Int      @default(10)
+  mediaItemID     String?
+  mediaTitle      String?
+  mediaStreamURL  String?   @db.Text
+  mediaThumbnailURL String? @db.Text
+  mediaType       String?   // movie, series, music, video, livestream
+  mediaSource     String?   // url, youtube, plex, jellyfin, local
+  mediaDuration   Float?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Relations
+  host          User        @relation("Host", fields: [hostID], references: [id])
+  memberships   Membership[]
+  messages      ChatMessage[]
+  reports       RoomReport[]
+
+  @@index([code])
+  @@index([hostID])
+  @@map("rooms")
+}
+
+// ─── Room Memberships ─────────────────────────────────
+
+model Membership {
+  id        String   @id @default(nanoid(16))
+  roomID    String
+  userID    String
+  joinedAt  DateTime @default(now())
+
+  room Room @relation(fields: [roomID], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userID], references: [id], onDelete: Cascade)
+
+  @@unique([roomID, userID])
+  @@index([userID])
+  @@map("room_memberships")
+}
+
+// ─── Chat Messages ───────────────────────────────────
+
+model ChatMessage {
+  id        String   @id @default(nanoid(16))
+  roomID    String
+  senderID  String
+  text      String
+  createdAt DateTime @default(now())
+
+  room   Room @relation(fields: [roomID], references: [id], onDelete: Cascade)
+  sender User @relation(fields: [senderID], references: [id], onDelete: Cascade)
+
+  @@index([roomID, createdAt])
+  @@map("chat_messages")
+}
+
+// ─── Friend Invites ──────────────────────────────────
+
+model Invite {
+  id         String   @id @default(nanoid(16))
+  inviterID  String
+  inviteeID  String
+  roomID     String?
+  status     String   @default("pending")  // pending, accepted, declined
+  createdAt  DateTime @default(now())
+
+  inviter  User @relation("Inviter", fields: [inviterID], references: [id], onDelete: Cascade)
+  invitee  User @relation("Invitee", fields: [inviteeID], references: [id], onDelete: Cascade)
+
+  @@index([inviteeID, status])
+  @@map("invites")
+}
+
+// ─── Room Reports (DMCA / content violation) ───────────
+
+model RoomReport {
+  id        String   @id @default(nanoid(16))
+  roomID    String
+  reporterID String
+  reason    String   @db.Text
+  createdAt DateTime @default(now())
+  resolved  Boolean  @default(false)
+
+  room     Room @relation(fields: [roomID], references: [id], onDelete: Cascade)
+  reporter User @relation(fields: [reporterID], references: [id], onDelete: Cascade)
+
+  @@index([resolved, createdAt])
+  @@map("room_reports")
+}

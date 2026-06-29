@@ -1,0 +1,197 @@
+# ─────────────────────────────────────────────────────────────────────────────
+#  SyncWatch — Fastlane Fastfile
+#
+#  Лейны (lanes):
+#    fastlane testflight   — полная сборка + валидация privacy + upload в TestFlight
+#    fastlane beta         — shortcut для тестовых сборок (shorter build numbers)
+#    fastlane validate     — только валидация Privacy Manifest и кода
+#    fastlane build_only   — сборка без аплоада (для CI/проверки)
+#
+#  Перед первым запуском:
+#    1. cd RaveClone/devops && bundle install
+#    2. Заполнить Appfile (apple_id, team_id, itc_team_id)
+#    3. Создать ключ API в App Store Connect → Users → Access → Keys
+#       (роль App Manager), скачать .p8 и указать путь в DIGGER_KEY_FILE
+#    4. fastlane match appstore (настроит сертификаты через git-репозиторий)
+# ─────────────────────────────────────────────────────────────────────────────
+
+default_platform(:ios)
+
+# Расположение Xcode-проекта. Подставьте реальный путь/имя .xcodeproj.
+PROJECT_PATH = "../RaveClone.xcodeproj"
+SCHEME = "RaveClone"
+BUNDLE_ID = "com.raveclone.app"
+
+# Путь к API-ключу App Store Connect (для неинтерактивного аплоада).
+# Указывается через переменную окружения ASC_API_KEY_FILE.
+def asc_api_key
+  @asc_api_key ||= app_store_connect_api_key(
+    key_id: ENV["ASC_KEY_ID"],
+    issuer_id: ENV["ASC_ISSUER_ID"],
+    key_filepath: ENV["ASC_KEY_FILE"],
+    in_house: false
+  )
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Lane: testflight — главная сборка для ревью/беты
+# ─────────────────────────────────────────────────────────────────────────────
+lane :testflight do
+  # 1) Инкрементируем номер сборки (уникальный для каждого аплоада)
+  increment_build_number(
+    xcodeproj: PROJECT_PATH,
+    build_number: next_build_number
+  )
+
+  # 2) Обновляем маркетинговую версию (если передана через env)
+  if ENV["APP_VERSION"]
+    increment_version_number(
+      xcodeproj: PROJECT_PATH,
+      version_number: ENV["APP_VERSION"]
+    )
+  end
+
+  # 3) Валидируем Privacy Manifest ПЕРЕД сборкой
+  validate_privacy_manifest
+
+  # 4) Подтягиваем сертификаты и профили через match
+  match(
+    type: "appstore",
+    readonly: ENV["CI"] == "true",        # в CI — только чтение
+    app_identifier: BUNDLE_ID,
+    git_url: ENV["MATCH_GIT_URL"],        # приватный git-репозиторий с сертификатами
+    username: ENV["APPLE_ID"]
+  )
+
+  # 5) Сборка .ipa (без cocoapods-update-pods, т.к. SPM используется)
+  build_app(
+    project: PROJECT_PATH,
+    scheme: SCHEME,
+    configuration: "Release",
+    export_method: "app-store",
+    clean: true,
+    output_directory: "./build",
+    output_name: "RaveClone.ipa",
+    # Запрещаем bitcode (deprecated в Xcode 14+)
+    include_bitcode: false,
+    # Ключи для неинтерактивной сборки в CI
+    xcargs: "-allowProvisioningUpdates"
+  )
+
+  # 6) Загрузка в TestFlight
+  upload_to_testflight(
+    api_key: asc_api_key,
+    skip_waiting_for_build_processing: true,
+    # Авто-включение бета-ревью (для немедленной раздачи тестерам)
+    distribute_external: false,
+    notify_external_testers: false
+  )
+
+  # 7) Slack-нотификация (опционально)
+  if ENV["SLACK_URL"]
+    slack(
+      slack_url: ENV["SLACK_URL"],
+      message: "✅ SyncWatch #{ENV['APP_VERSION'] || ''} (#{lane_context[SharedValues::BUILD_NUMBER]}) собран и загружен в TestFlight",
+      success: true
+    )
+  end
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Lane: beta — быстрая тестовая сборка с суффиксом версии
+# ─────────────────────────────────────────────────────────────────────────────
+lane :beta do
+  ENV["APP_VERSION"] = current_version + "-beta" unless ENV["APP_VERSION"]
+  testflight
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Lane: validate — проверка PrivacyInfo.xcprivacy и структуры
+# ─────────────────────────────────────────────────────────────────────────────
+lane :validate do
+  validate_privacy_manifest
+  UI.success("✅ Privacy Manifest валиден")
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Lane: build_only — сборка без аплоада (для CI/pre-commit)
+# ─────────────────────────────────────────────────────────────────────────────
+lane :build_only do
+  validate_privacy_manifest
+
+  match(
+    type: "appstore",
+    readonly: true,
+    app_identifier: BUNDLE_ID,
+    git_url: ENV["MATCH_GIT_URL"]
+  )
+
+  build_app(
+    project: PROJECT_PATH,
+    scheme: SCHEME,
+    configuration: "Release",
+    export_method: "app-store",
+    clean: true,
+    output_directory: "./build"
+  )
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Private: валидация Privacy Manifest
+# ─────────────────────────────────────────────────────────────────────────────
+desc "Проверяет наличие и корректность PrivacyInfo.xcprivacy"
+private_lane :validate_privacy_manifest do
+  privacy_file = "../RaveClone/Resources/PrivacyInfo.xcprivacy"
+
+  UI.user_error!("❌ PrivacyInfo.xcprivacy не найден по пути #{privacy_file}") unless File.exist?(privacy_file)
+
+  # Парсим plist
+  plist = Xcodeproj::Plist.read_from_path(privacy_file)
+
+  # Проверяем обязательные поля
+  required_keys = [
+    "NSPrivacyTracking",
+    "NSPrivacyTrackingDomains",
+    "NSPrivacyCollectedDataTypes",
+    "NSPrivacyAccessedAPICategory"
+  ]
+
+  missing = required_keys.reject { |k| plist.key?(k) }
+  UI.user_error!("❌ PrivacyInfo.xcprivacy: отсутствуют ключи: #{missing.join(', ')}") unless missing.empty?
+
+  # Если заявлен tracking, должен быть IDFA-вопрос
+  if plist["NSPrivacyTracking"] == true
+    UI.important("⚠️ Включён NSPrivacyTracking — потребуется App Tracking Transparency permission")
+  end
+
+  UI.success("✅ PrivacyInfo.xcprivacy прошёл валидацию")
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Private: генерация уникального номера сборки (timestamp)
+# ─────────────────────────────────────────────────────────────────────────────
+private_lane :next_build_number do
+  # В CI: используем номер рана, иначе — timestamp для локалки
+  if ENV["CI_BUILD_NUMBER"]
+    ENV["CI_BUILD_NUMBER"]
+  else
+    Time.now.utc.strftime("%y%m%d%H%M")
+  end
+end
+
+private_lane :current_version do
+  get_version_number(xcodeproj: PROJECT_PATH, target: SCHEME)
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  После ошибки — Slack-нотификация
+# ─────────────────────────────────────────────────────────────────────────────
+error do |lane, _exception|
+  if ENV["SLACK_URL"]
+    slack(
+      slack_url: ENV["SLACK_URL"],
+      message: "❌ SyncWatch: lane '#{lane}' упал",
+      success: false
+    )
+  end
+end
