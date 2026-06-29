@@ -3,7 +3,7 @@ import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import { loadConfig } from "./config/index.js";
 import { prisma } from "./config/db.js";
-import { createRedisClient } from "./config/redis.js";
+import { redis, disconnectRedis } from "./config/redis.js";
 import { YouTubeService } from "./services/youtube.js";
 import { PushService } from "./services/push.js";
 import authPlugin from "./middleware/auth.js";
@@ -56,12 +56,8 @@ async function main() {
 
   // ─── Services ───────────────────────────────────────
 
-  const redis = createRedisClient(config);
-  await redis.connect().catch((err) => {
-    fastify.log.warn(err, "Redis not available — running without cache");
-  });
-
-  // Store redis on fastify for route access
+  // Redis — ленивый синглтон (подключается при первом обращении)
+  // Используем единый прокси из config/redis.ts
   fastify.decorate("redis", redis);
 
   const youtubeService = new YouTubeService(
@@ -120,7 +116,7 @@ async function main() {
     }
 
     await fastify.close();
-    await redis.quit();
+    disconnectRedis();
     await prisma.$disconnect();
 
     fastify.log.info("Server shut down complete");

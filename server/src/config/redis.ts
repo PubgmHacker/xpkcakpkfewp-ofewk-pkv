@@ -33,6 +33,13 @@ export const redis = new Proxy({} as Redis, {
   },
 });
 
+export function disconnectRedis(): void {
+  if (_redisInstance) {
+    _redisInstance.quit().catch(() => {});
+    _redisInstance = null;
+  }
+}
+
 export function createRedisClient(config: Config): Redis {
   const client = new Redis(config.redisUrl, {
     maxRetriesPerRequest: 3,
