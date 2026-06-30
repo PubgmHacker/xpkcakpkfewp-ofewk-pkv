@@ -8,8 +8,11 @@ import { YouTubeService } from "./services/youtube.js";
 import { PushService } from "./services/push.js";
 import authPlugin from "./middleware/auth.js";
 import { authRoutes } from "./routes/auth.js";
+import { authSocialRoutes } from "./routes/auth-social.js";
 import { roomRoutes } from "./routes/rooms.js";
 import { mediaRoutes } from "./routes/media.js";
+import { mediaRoutesV2 } from "./routes/media-v2.js";
+import { adminRoutes } from "./routes/admin.js";
 import { wsHandler } from "./websocket/ws-handler.js";
 
 // ─── Boot ────────────────────────────────────────────
@@ -85,8 +88,11 @@ async function main() {
 
   // API routes (versioned)
   await fastify.register(authRoutes, { prefix: "/api/auth" });
+  await fastify.register(authSocialRoutes, { prefix: "/api/auth" });
   await fastify.register(roomRoutes, { prefix: "/api/rooms" });
   await fastify.register(mediaRoutes, { prefix: "/api/media" });
+  await fastify.register(mediaRoutesV2, { prefix: "/api/media" });
+  await fastify.register(adminRoutes, { prefix: "/api/admin" });
 
   // ─── WebSocket ─────────────────────────────────────
 
