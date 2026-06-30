@@ -43,5 +43,5 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD wget -qO- http://localhost:3000/health || exit 1
 
-# Production start: generate Prisma client, then run server via tsx
-CMD ["sh", "-c", "npx prisma generate && npx tsx src/index.ts"]
+# Production start: apply schema, generate client, then run server via tsx
+CMD ["sh", "-c", "npx prisma db push --accept-data-loss && npx prisma generate && npx tsx src/index.ts"]
