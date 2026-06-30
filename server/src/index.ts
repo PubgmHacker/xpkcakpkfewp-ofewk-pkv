@@ -90,7 +90,6 @@ async function main() {
   await fastify.register(authRoutes, { prefix: "/api/auth" });
   await fastify.register(authSocialRoutes, { prefix: "/api/auth" });
   await fastify.register(roomRoutes, { prefix: "/api/rooms" });
-  await fastify.register(mediaRoutes, { prefix: "/api/media" });
   await fastify.register(mediaRoutesV2, { prefix: "/api/media" });
   await fastify.register(adminRoutes, { prefix: "/api/admin" });
 
