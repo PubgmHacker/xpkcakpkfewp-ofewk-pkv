@@ -165,6 +165,86 @@ model RoomReport {
   @@map("room_reports")
 }
 
+// ─── Friendship ─────────────────────────────────────
+
+model Friendship {
+  id        String   @id @default(nanoid(16))
+  userAID   String
+  userBID   String
+  createdAt DateTime @default(now())
+
+  userA User @relation("FriendFrom", fields: [userAID], references: [id], onDelete: Cascade)
+  userB User @relation("FriendTo", fields: [userBID], references: [id], onDelete: Cascade)
+
+  @@unique([userAID, userBID])
+  @@index([userBID])
+  @@map("friendships")
+}
+
+// ─── Friend Request ─────────────────────────────────
+
+model FriendRequest {
+  id         String   @id @default(nanoid(16))
+  fromUserID String
+  toUserID   String
+  status     String   @default("pending")
+  createdAt  DateTime @default(now())
+
+  fromUser User @relation("RequestFrom", fields: [fromUserID], references: [id], onDelete: Cascade)
+  toUser   User @relation("RequestTo", fields: [toUserID], references: [id], onDelete: Cascade)
+
+  @@unique([fromUserID, toUserID])
+  @@index([toUserID, status])
+  @@map("friend_requests")
+}
+
+// ─── DM Messages ────────────────────────────────────
+
+model DMMessage {
+  id          String   @id @default(nanoid(16))
+  senderID    String
+  receiverID  String
+  content     String   @db.Text
+  createdAt   DateTime @default(now())
+
+  sender   User @relation("DMSender", fields: [senderID], references: [id], onDelete: Cascade)
+  receiver User @relation("DMReceiver", fields: [receiverID], references: [id], onDelete: Cascade)
+
+  @@index([senderID, receiverID, createdAt])
+  @@index([receiverID, senderID, createdAt])
+  @@map("dm_messages")
+}
+
+// ─── Watch History ──────────────────────────────────
+
+model WatchHistory {
+  id              String   @id @default(nanoid(16))
+  userID          String
+  roomID          String?
+  mediaTitle      String
+  mediaPoster     String?  @db.Text
+  mediaType       String?
+  watchedAt       DateTime @default(now())
+  durationWatched Int      @default(0)
+
+  user User @relation(fields: [userID], references: [id], onDelete: Cascade)
+
+  @@index([userID, watchedAt])
+  @@map("watch_history")
+}
+
+// ─── Playback State ─────────────────────────────────
+
+model PlaybackState {
+  id          String   @id @default(nanoid(16))
+  roomID      String   @unique
+  currentTime Float    @default(0)
+  isPlaying   Boolean  @default(false)
+  updatedAt   DateTime @updatedAt
+
+  @@map("playback_states")
+}
+
 // ─── Friendship (NEW) ───────────────────────────────
 
 model Friendship {
