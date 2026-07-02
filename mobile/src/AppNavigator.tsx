@@ -7,6 +7,8 @@ import { useAuthStore } from "./store/authStore";
 import AppAuthScreen from "./screens/AppAuthScreen";
 import MainTabNavigator from "./screens/MainTabNavigator";
 import RoomScreen from "./screens/RoomScreen";
+import ServicePickerScreen from "./screens/ServicePickerScreen";
+import ContentBrowserScreen from "./screens/ContentBrowserScreen";
 import type { Room } from "./types";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -36,6 +38,8 @@ export type RootStackParamList = {
   Auth: undefined;
   Main: undefined;
   Room: { room: Room };
+  ServicePicker: undefined;
+  ContentBrowser: { serviceID: string; serviceName: string };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -60,6 +64,7 @@ export default function AppNavigator() {
   return (
     <NavigationContainer theme={DarkTheme}>
       <Stack.Navigator
+        id="MainStack"
         screenOptions={{
           headerStyle: { backgroundColor: "#0F0F17" },
           headerTintColor: "#fff",
@@ -86,6 +91,18 @@ export default function AppNavigator() {
               name="Room"
               component={RoomScreen}
               options={{ title: "Комната", headerBackTitle: "Назад" }}
+            />
+            {/* ─── Выбор сервиса ─── */}
+            <Stack.Screen
+              name="ServicePicker"
+              component={ServicePickerScreen}
+              options={{ title: "Сервис", headerBackTitle: "Назад" }}
+            />
+            {/* ─── Браузер контента ─── */}
+            <Stack.Screen
+              name="ContentBrowser"
+              component={ContentBrowserScreen}
+              options={({ route }) => ({ title: (route.params as { serviceName: string })?.serviceName || "Контент" })}
             />
           </>
         )}

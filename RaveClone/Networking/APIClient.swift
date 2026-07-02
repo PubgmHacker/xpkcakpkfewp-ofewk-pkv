@@ -20,7 +20,7 @@ final class APIClient: Sendable {
     // Auth token — set after login
     var authToken: String?
 
-    init(baseURL: String = "https://api.raveclone.app/v1") {
+    init(baseURL: String = "https://xpkcakpkfewp-ofewk-pkv-production.up.railway.app/api") {
         self.baseURL = URL(string: baseURL)!
     }
 

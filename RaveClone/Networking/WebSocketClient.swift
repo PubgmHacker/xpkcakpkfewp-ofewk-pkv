@@ -21,6 +21,12 @@ final class WebSocketClient: WebSocketClientProtocol {
     weak var delegate: WebSocketClientDelegate?
     private(set) var isConnected: Bool = false
 
+    /// Synchronous, thread-safe disconnect для вызова из `deinit`.
+    /// Не трогает @MainActor state — только underlying socket.
+    nonisolated func cancelSocketForDeinit() {
+        socket?.cancel(with: .goingAway, reason: nil)
+    }
+
     /// Latest synchronized server time (unix seconds, drift-corrected).
     /// Used by SyncEngine to compute RTT and latency compensation.
     private(set) var synchronizedServerTime: TimeInterval = 0
@@ -42,7 +48,9 @@ final class WebSocketClient: WebSocketClientProtocol {
 
     // MARK: - Internal WebSocket
 
-    private var socket: URLSessionWebSocketTask?
+    /// `nonisolated(unsafe)` — URLSessionWebSocketTask сам по себе thread-safe,
+    /// доступ нужен из `deinit` (nonisolated context).
+    private nonisolated(unsafe) var socket: URLSessionWebSocketTask?
     private let urlSession: URLSession
 
     // MARK: - Reconnect (Exponential Backoff)
@@ -85,7 +93,7 @@ final class WebSocketClient: WebSocketClientProtocol {
 
     // MARK: - Init
 
-    init(serverURL: String = "wss://raveclone.app") {
+    init(serverURL: String = "wss://xpkcakpkfewp-ofewk-pkv-production.up.railway.app") {
         self.serverBaseURL = URL(string: serverURL)!
         let config = URLSessionConfiguration.default
         config.waitsForConnectivity = true
@@ -374,7 +382,7 @@ final class WebSocketClient: WebSocketClientProtocol {
         stopHeartbeat()
         isReconnecting = true
 
-        delegate?.webSocket(self, didDisconnect: self, reason: reason)
+        delegate?.webSocketDidDisconnect(self, reason: reason)
 
         scheduleReconnect()
     }
@@ -406,7 +414,7 @@ final class WebSocketClient: WebSocketClientProtocol {
         flushPendingMessages()
         Logger.ws.info("✅ Connected (RTT estimate: \(String(format: "%.0f", estimatedRTT * 1000))ms)")
 
-        delegate?.webSocket(self, didConnect: self)
+        delegate?.webSocketDidConnect(self)
 
         // Restore room session if we were in one
         if activeRoomID != nil {

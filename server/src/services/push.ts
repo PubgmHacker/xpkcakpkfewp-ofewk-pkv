@@ -1,4 +1,5 @@
 import type { FastifyBaseLogger } from "fastify";
+import { prisma } from "../config/db.js";
 
 // ─── Notification Types ──────────────────────────────
 
@@ -32,7 +33,7 @@ interface PushNotification {
  * Note: In development mode, use APNs auth key for direct APNs testing.
  */
 export class PushService {
-  private adminApp: unknown | null = null;
+  private adminApp: any = null;
   private initialized = false;
 
   constructor(
@@ -53,8 +54,9 @@ export class PushService {
 
     try {
       // Dynamic import of firebase-admin (ESM compatible)
-      const { default: admin } = await import("firebase-admin/app");
-      const { getMessaging } = await import("firebase-admin/messaging");
+      // Using require for CJS interop — firebase-admin ships as CJS
+      const admin = require("firebase-admin/app");
+      const { getMessaging } = require("firebase-admin/messaging");
 
       // Check if already initialized (HMR in dev)
       if (!admin.apps.length) {
@@ -86,11 +88,10 @@ export class PushService {
     if (!ready) return false;
 
     try {
-      const { getMessaging } = await import("firebase-admin/messaging");
+      const { getMessaging } = require("firebase-admin/messaging");
       const messaging = getMessaging();
 
       // Get user's FCM token from DB
-      const { prisma } = await import("../config/db.js");
       const user = await prisma.user.findUnique({
         where: { id: notification.userID },
         select: { fcmToken: true },
@@ -134,7 +135,6 @@ export class PushService {
       if (errMsg.includes("registration-token-not-registered") ||
           errMsg.includes("invalid-registration-token")) {
         // Clear the invalid token
-        const { prisma } = await import("../config/db.js");
         await prisma.user.update({
           where: { id: notification.userID },
           data: { fcmToken: null },

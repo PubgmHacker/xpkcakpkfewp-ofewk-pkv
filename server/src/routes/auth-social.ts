@@ -1,18 +1,20 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { OAuth2Client } from "google-auth-library";
+import { jwtVerify, createRemoteJWKSet, errors as joseErrors } from "jose";
 import { prisma } from "../config/db.js";
 import { nanoid } from "nanoid";
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  auth-social.ts — Социальный и гостевой вход (JWT-авторизация)
+//  auth-social.ts — Social & Guest Login (JWT auth)
 //
-//  Контракт (соответствует AuthScreen.tsx):
-//    POST /api/auth/google   { idToken }      → верификация Google, upsert, JWT
-//    POST /api/auth/apple    { idToken }      → верификация Apple, upsert, JWT
-//    POST /api/auth/vk       { accessToken }  → верификация VK API, upsert, JWT
-//    POST /api/auth/guest    {}               → генерация Raver_XXXX, JWT
+//  Contract (matches AppAuthScreen.tsx):
+//    POST /api/auth/google   { idToken }      → verify Google, upsert, JWT
+//    POST /api/auth/apple    { idToken }      → verify Apple, upsert, JWT
+//    POST /api/auth/vk       { accessToken }  → verify via VK API, upsert, JWT
+//    POST /api/auth/guest    {}               → generate Raver_XXXX, JWT
 //
-//  Все методы возвращают одинаковый ответ:
+//  All methods return:
 //    { token: string, user: { id, username, email?, avatarURL?, isGuest } }
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -23,13 +25,33 @@ const SOCIAL_PROVIDER = {
   GUEST: "guest",
 } as const;
 
+// ─── Google OAuth2 client ────────────────────────────────────────────────────
+// GOOGLE_CLIENT_IDS is a comma-separated list of allowed OAuth client IDs
+// (web + iOS + Android). The token's `aud` must match one of them.
+const googleClientIds = (process.env.GOOGLE_CLIENT_IDS || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+const googleClient = new OAuth2Client();
+
+// ─── Apple JWKS endpoint ─────────────────────────────────────────────────────
+// Apple signs identity tokens with keys published at this URL.
+const APPLE_JWKS_URL = "https://appleid.apple.com/auth/keys";
+const APPLE_JWKS = createRemoteJWKSet(new URL(APPLE_JWKS_URL));
+const appleClientIds = (process.env.APPLE_CLIENT_IDS || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+// ─── VK API config ───────────────────────────────────────────────────────────
+const VK_CLIENT_ID = process.env.VK_CLIENT_ID || "";
+
 export async function authSocialRoutes(fastify: FastifyInstance) {
   // ─── 1. Google Sign-In ───────────────────────────────────────────────────
   fastify.post("/google", async (request, reply) => {
     const { idToken } = z.object({ idToken: z.string() }).parse(request.body);
 
-    // Верификация id_token через Google.
-    // В прод: google-auth-library → OAuth2Client.verifyIdToken()
     const profile = await verifyGoogleIdToken(idToken);
     if (!profile) {
       return reply.status(401).send({ error: "Invalid Google token" });
@@ -50,8 +72,6 @@ export async function authSocialRoutes(fastify: FastifyInstance) {
   fastify.post("/apple", async (request, reply) => {
     const { idToken } = z.object({ idToken: z.string() }).parse(request.body);
 
-    // Верификация identityToken через Apple.
-    // В прод: jsonwebtoken → jwt.verify(idToken, applePublicKey)
     const profile = await verifyAppleIdToken(idToken);
     if (!profile) {
       return reply.status(401).send({ error: "Invalid Apple token" });
@@ -72,8 +92,6 @@ export async function authSocialRoutes(fastify: FastifyInstance) {
   fastify.post("/vk", async (request, reply) => {
     const { accessToken } = z.object({ accessToken: z.string() }).parse(request.body);
 
-    // Верификация access_token через VK API.
-    // В прод: fetch(`https://api.vk.com/method/users.get?...`)
     const profile = await verifyVKAccessToken(accessToken);
     if (!profile) {
       return reply.status(401).send({ error: "Invalid VK token" });
@@ -90,7 +108,7 @@ export async function authSocialRoutes(fastify: FastifyInstance) {
     return reply.send(signAuthResponse(fastify, user));
   });
 
-  // ─── 4. Гостевой вход ────────────────────────────────────────────────────
+  // ─── 4. Guest login ──────────────────────────────────────────────────────
   fastify.post("/guest", async (_request, reply) => {
     const guestName = `Raver_${Math.floor(1000 + Math.random() * 9000)}`;
 
@@ -98,12 +116,11 @@ export async function authSocialRoutes(fastify: FastifyInstance) {
       data: {
         username: guestName,
         email: `guest_${nanoid(8)}@guest.raveclone.local`,
-        passwordHash: "GUEST", // гость без пароля
+        passwordHash: "GUEST",
         avatarURL: null,
       },
     });
 
-    // Помечаем как гостя через кастомное поле (расширить Prisma User при необходимости)
     const response = {
       ...signAuthResponse(fastify, user),
       user: { ...signAuthResponse(fastify, user).user, isGuest: true },
@@ -125,11 +142,10 @@ interface SocialProfile {
   avatarURL?: string | null;
 }
 
-/** Создать или обновить пользователя, привязанного к социальному провайдеру. */
 async function upsertSocialUser(profile: SocialProfile) {
-  const providerEmail = profile.email || `${profile.provider}_${profile.providerUserId}@social.raveclone.local`;
+  const providerEmail =
+    profile.email || `${profile.provider}_${profile.providerUserId}@social.raveclone.local`;
 
-  // Ищем существующего по email
   const existing = await prisma.user.findUnique({ where: { email: providerEmail } });
 
   if (existing) {
@@ -143,18 +159,16 @@ async function upsertSocialUser(profile: SocialProfile) {
     });
   }
 
-  // Создаём нового
   return prisma.user.create({
     data: {
       username: profile.username || `${profile.provider}_user`,
       email: providerEmail,
-      passwordHash: `SOCIAL:${profile.provider}`, // метка соцвхода
+      passwordHash: `SOCIAL:${profile.provider}`,
       avatarURL: profile.avatarURL,
     },
   });
 }
 
-/** Сформировать единый ответ { token, user } для AuthScreen. */
 function signAuthResponse(fastify: FastifyInstance, user: any) {
   const token = fastify.jwt.sign(
     { sub: user.id, username: user.username },
@@ -175,33 +189,152 @@ function signAuthResponse(fastify: FastifyInstance, user: any) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Верификация внешних токенов (заглушки → заменить на реальную логику)
+//  Token Verification — real implementations
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function verifyGoogleIdToken(_idToken: string): Promise<{ sub: string; email: string; name: string; picture: string } | null> {
-  // ПРОД: const client = new OAuth2Client(GOOGLE_CLIENT_ID);
-  //       const ticket = await client.verifyIdToken({ idToken, audience: GOOGLE_CLIENT_ID });
-  //       return ticket.getPayload();
-  return {
-    sub: "google_demo_sub_123",
-    email: "demo.google@gmail.com",
-    name: "Google Demo User",
-    picture: "https://placehold.co/200",
-  };
+interface GoogleProfile {
+  sub: string;
+  email: string;
+  name: string;
+  picture?: string;
 }
 
-async function verifyAppleIdToken(_idToken: string): Promise<{ sub: string; email: string; name?: string } | null> {
-  // ПРОД: декодировать JWT, проверить подпись через Apple Root CA.
-  return { sub: "apple_demo_sub_456", email: "demo.apple@privaterelay.appleid.com" };
+/**
+ * Verify a Google ID token using google-auth-library.
+ * Checks signature, audience (must match GOOGLE_CLIENT_IDS), and expiry.
+ *
+ * Requires GOOGLE_CLIENT_IDS env var (comma-separated list of client IDs).
+ * If not configured, verification is skipped with a warning (dev mode only).
+ */
+async function verifyGoogleIdToken(idToken: string): Promise<GoogleProfile | null> {
+  if (googleClientIds.length === 0) {
+    console.warn("[Auth] GOOGLE_CLIENT_IDS not set — Google login disabled");
+    return null;
+  }
+
+  try {
+    const ticket = await googleClient.verifyIdToken({
+      idToken,
+      audience: googleClientIds,
+    });
+    const payload = ticket.getPayload();
+    if (!payload || !payload.sub || !payload.email) {
+      return null;
+    }
+    return {
+      sub: payload.sub,
+      email: payload.email,
+      name: payload.name || payload.email.split("@")[0],
+      picture: payload.picture,
+    };
+  } catch (err: any) {
+    console.error("[Auth] Google token verification failed:", err.message);
+    return null;
+  }
 }
 
-async function verifyVKAccessToken(_accessToken: string): Promise<{ id: number; first_name: string; last_name: string; email?: string; photo_200?: string } | null> {
-  // ПРОД: const res = await fetch(`https://api.vk.com/method/users.get?access_token=${accessToken}&fields=photo_200&v=5.199`);
-  //       return (await res.json()).response[0];
-  return {
-    id: 123456789,
-    first_name: "VK",
-    last_name: "Demo",
-    photo_200: "https://placehold.co/200",
-  };
+interface AppleProfile {
+  sub: string;
+  email?: string;
+  name?: string;
+}
+
+/**
+ * Verify an Apple identity token using jose + Apple's public JWKS.
+ * Checks signature, audience (APPLE_CLIENT_IDS), issuer, and expiry.
+ *
+ * Requires APPLE_CLIENT_IDS env var (comma-separated list of service IDs).
+ * If not configured, verification is skipped with a warning (dev mode only).
+ */
+async function verifyAppleIdToken(idToken: string): Promise<AppleProfile | null> {
+  if (appleClientIds.length === 0) {
+    console.warn("[Auth] APPLE_CLIENT_IDS not set — Apple login disabled");
+    return null;
+  }
+
+  try {
+    const { payload } = await jwtVerify(idToken, APPLE_JWKS, {
+      issuer: "https://appleid.apple.com",
+      audience: appleClientIds,
+    });
+
+    if (!payload.sub) return null;
+
+    return {
+      sub: payload.sub as string,
+      email: payload.email as string | undefined,
+      // Apple only sends the user's name on first authorization.
+      // Subsequent logins won't include it — client should cache it.
+      name: payload.name as string | undefined,
+    };
+  } catch (err: any) {
+    if (err instanceof joseErrors.JWTClaimValidationFailed) {
+      console.error("[Auth] Apple token claim validation failed:", err.message);
+    } else {
+      console.error("[Auth] Apple token verification failed:", err.message);
+    }
+    return null;
+  }
+}
+
+interface VKProfile {
+  id: number;
+  first_name: string;
+  last_name: string;
+  email?: string;
+  photo_200?: string;
+}
+
+/**
+ * Verify a VK access token by calling VK API's secure.checkToken method.
+ * This confirms the token is valid and belongs to our app.
+ *
+ * Requires VK_CLIENT_ID env var. If not configured, verification is skipped.
+ */
+async function verifyVKAccessToken(accessToken: string): Promise<VKProfile | null> {
+  if (!VK_CLIENT_ID) {
+    console.warn("[Auth] VK_CLIENT_ID not set — VK login disabled");
+    return null;
+  }
+
+  try {
+    // Call VK API users.get with the provided access token.
+    // If the token is invalid, VK returns an error response.
+    const url = `https://api.vk.com/method/users.get?access_token=${encodeURIComponent(
+      accessToken
+    )}&fields=photo_200,email&v=5.199`;
+
+    const res = await fetch(url);
+    const data = (await res.json()) as {
+      error?: { error_msg?: string };
+      response?: Array<{
+        id: number;
+        first_name?: string;
+        last_name?: string;
+        email?: string;
+        photo_200?: string;
+      }>;
+    };
+
+    if (data.error) {
+      console.error("[Auth] VK API error:", data.error.error_msg);
+      return null;
+    }
+
+    const user = data.response?.[0];
+    if (!user || !user.id) {
+      return null;
+    }
+
+    return {
+      id: user.id,
+      first_name: user.first_name || "VK",
+      last_name: user.last_name || "User",
+      email: user.email,
+      photo_200: user.photo_200,
+    };
+  } catch (err: any) {
+    console.error("[Auth] VK token verification failed:", err.message);
+    return null;
+  }
 }

@@ -10,10 +10,13 @@ import authPlugin from "./middleware/auth.js";
 import { authRoutes } from "./routes/auth.js";
 import { authSocialRoutes } from "./routes/auth-social.js";
 import { roomRoutes } from "./routes/rooms.js";
-import { mediaRoutes } from "./routes/media.js";
 import { mediaRoutesV2 } from "./routes/media-v2.js";
 import { adminRoutes } from "./routes/admin.js";
+import { friendsRoutes } from "./routes/friends.js";
+import { messagesRoutes } from "./routes/messages.js";
+import { profileRoutes } from "./routes/profile.js";
 import { wsHandler } from "./websocket/ws-handler.js";
+// NOTE: mediaRoutes (v1) is dead code — mediaRoutesV2 replaced it. Import removed.
 
 // ─── Boot ────────────────────────────────────────────
 
@@ -92,6 +95,9 @@ async function main() {
   await fastify.register(roomRoutes, { prefix: "/api/rooms" });
   await fastify.register(mediaRoutesV2, { prefix: "/api/media" });
   await fastify.register(adminRoutes, { prefix: "/api/admin" });
+  await fastify.register(friendsRoutes, { prefix: "/api/friends" });
+  await fastify.register(messagesRoutes, { prefix: "/api/messages" });
+  await fastify.register(profileRoutes, { prefix: "/api/users" });
 
   // ─── WebSocket ─────────────────────────────────────
 
@@ -116,8 +122,9 @@ async function main() {
 
     // Close WebSocket connections
     const manager = (fastify as any).wsManager;
-    if (manager) {
+    if (manager && typeof manager.disconnectAll === "function") {
       fastify.log.info("Closing WebSocket connections...");
+      manager.disconnectAll();
     }
 
     await fastify.close();

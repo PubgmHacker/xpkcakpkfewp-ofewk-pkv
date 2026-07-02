@@ -62,10 +62,10 @@ final class RoomViewModel: WebSocketClientDelegate {
         }
     }
 
-    deinit {
-        // Снимаем делегат, чтобы WS не звонил в освобожденную модель.
-        wsClient.delegate = nil
-        wsClient.disconnect()
+    nonisolated deinit {
+        // Cleanup: только синхронная отмена socket из nonisolated context.
+        // delegate и state mutations убраны — @MainActor класс освобождается целиком.
+        wsClient.cancelSocketForDeinit()
     }
 
     // MARK: - Join Flow (главный async-вход экрана комнаты)
@@ -162,7 +162,8 @@ final class RoomViewModel: WebSocketClientDelegate {
             senderName: "You",
             text: trimmed,
             timestamp: Date(),
-            isRead: false
+            isRead: false,
+            senderAvatarURL: nil
         ))
         chatText = ""
     }

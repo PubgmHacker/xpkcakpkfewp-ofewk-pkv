@@ -1,16 +1,9 @@
 import Foundation
 
-// MARK: - Auth Service (Firebase)
-/// Handles user authentication via Firebase Auth.
-///
-/// Token lifecycle:
-///   1. After sign-in/sign-up, Firebase issues a JWT (idToken).
-///   2. We store it in the keychain (here: UserDefaults for brevity; use
-///      KeychainAccess in production).
-///   3. APIClient, MediaService, and WebSocketClient all read this token to
-///      authenticate against the backend.
-///   4. Firebase tokens expire after 1h; we expose `getFreshToken()` which
-///      triggers a silent refresh via `getIDTokenResult(forcingRefresh:)`.
+// MARK: - Auth Service (Production — real server registration)
+/// Настоящая авторизация через сервер: /api/auth/signup, /api/auth/signin.
+/// Сервер создаёт пользователя в PostgreSQL, хеширует пароль (SHA-256),
+/// выдаёт JWT. Токен сохраняется и прокидывается во все сервисы.
 final class AuthService: AuthServiceProtocol {
 
     private let api: APIClient
@@ -26,14 +19,8 @@ final class AuthService: AuthServiceProtocol {
     // MARK: - Stored User + Token
 
     @MainActor private(set) var currentUser: User?
-
-    /// Latest JWT from Firebase. Other services read this to attach to requests.
     private(set) var authToken: String?
-
-    /// Unix timestamp when authToken expires.
     private(set) var tokenExpiry: TimeInterval = 0
-
-    /// FCM token for push notifications, if registered.
     private(set) var fcmToken: String?
 
     // MARK: - Init
@@ -41,7 +28,7 @@ final class AuthService: AuthServiceProtocol {
     init(api: APIClient) {
         self.api = api
 
-        // Restore cached user + token on launch
+        // Восстановление сохранённого юзера + токена при запуске
         if let data = defaults.data(forKey: Keys.savedUser),
            let user = try? JSONDecoder().decode(User.self, from: data) {
             Task { @MainActor in self.currentUser = user }
@@ -50,59 +37,50 @@ final class AuthService: AuthServiceProtocol {
         self.tokenExpiry = defaults.double(forKey: Keys.tokenExpiry)
         self.fcmToken = defaults.string(forKey: Keys.fcmToken)
 
-        // Propagate restored token to the API client immediately
         api.authToken = authToken
     }
 
-    // MARK: - Sign In
+    // MARK: - Sign In (реальный запрос к серверу)
 
     func signIn(email: String, password: String) async throws -> User {
-        // TODO: Replace with real Firebase Auth
-        // let result = try await Auth.auth().signIn(withEmail: email, password: password)
-        // let token = try await result.user.getIDTokenResult(forcingRefresh: true)
+        let body = SignInRequest(email: email, password: password)
+        let response: AuthResponse = try await api.request("auth/signin", method: .post, body: body)
 
         let user = User(
-            id: "user_\(email.hashValue)",
-            username: email.components(separatedBy: "@").first ?? "User",
-            email: email,
-            avatarURL: nil,
+            id: response.user.id,
+            username: response.user.username,
+            email: response.user.email,
+            avatarURL: response.user.avatarURL,
             isOnline: true,
-            createdAt: Date()
+            isPremium: response.user.isPremium ?? false,
+            createdAt: response.user.createdAt ?? Date()
         )
 
-        // Simulated token (replace with Firebase idToken)
-        let token = "mock.jwt.token.\(UUID().uuidString)"
-        let expiry = Date().addingTimeInterval(3600).timeIntervalSince1970
-        await cacheToken(token, expiry: expiry)
-
+        let expiry = Date().addingTimeInterval(86400).timeIntervalSince1970  // JWT ~24h
+        await cacheToken(response.token, expiry: expiry)
         cacheUser(user)
         await registerFCMIfPresent()
         return user
     }
 
-    // MARK: - Sign Up
+    // MARK: - Sign Up (реальная регистрация на сервере)
 
     func signUp(email: String, password: String, username: String) async throws -> User {
-        // TODO: Replace with real Firebase Auth
-        // let result = try await Auth.auth().createUser(withEmail: email, password: password)
-        // let changeRequest = result.user.createProfileChangeRequest()
-        // changeRequest.displayName = username
-        // try await changeRequest.commitChanges()
-        // let token = try await result.user.getIDTokenResult(forcingRefresh: true)
+        let body = SignUpRequest(email: email, password: password, username: username)
+        let response: AuthResponse = try await api.request("auth/signup", method: .post, body: body)
 
         let user = User(
-            id: "user_\(email.hashValue)",
-            username: username,
-            email: email,
-            avatarURL: nil,
+            id: response.user.id,
+            username: response.user.username,
+            email: response.user.email,
+            avatarURL: response.user.avatarURL,
             isOnline: true,
-            createdAt: Date()
+            isPremium: response.user.isPremium ?? false,
+            createdAt: response.user.createdAt ?? Date()
         )
 
-        let token = "mock.jwt.token.\(UUID().uuidString)"
-        let expiry = Date().addingTimeInterval(3600).timeIntervalSince1970
-        await cacheToken(token, expiry: expiry)
-
+        let expiry = Date().addingTimeInterval(86400).timeIntervalSince1970
+        await cacheToken(response.token, expiry: expiry)
         cacheUser(user)
         await registerFCMIfPresent()
         return user
@@ -111,7 +89,6 @@ final class AuthService: AuthServiceProtocol {
     // MARK: - Sign Out
 
     func signOut() async throws {
-        // TODO: try Auth.auth().signOut()
         defaults.removeObject(forKey: Keys.savedUser)
         defaults.removeObject(forKey: Keys.authToken)
         defaults.removeObject(forKey: Keys.tokenExpiry)
@@ -130,23 +107,15 @@ final class AuthService: AuthServiceProtocol {
     // MARK: - Delete Account
 
     func deleteAccount() async throws {
-        // TODO: try await Auth.auth().currentUser?.delete()
+        // TODO: добавить DELETE /api/auth/me на сервере
         try await signOut()
     }
 
     // MARK: - Token Management
 
-    /// Returns a non-expired auth token, refreshing via Firebase if needed.
-    /// Call this before any authenticated network operation.
     func getFreshToken() async -> String? {
-        // If token expires within next 5 min, force refresh
         let now = Date().timeIntervalSince1970
         if authToken == nil || now >= tokenExpiry - 300 {
-            // TODO: Firebase refresh
-            // if let firebaseUser = Auth.auth().currentUser {
-            //     let result = try await firebaseUser.getIDTokenResult(forcingRefresh: true)
-            //     await cacheToken(result.token, expiry: result.expirationDate.timeIntervalSince1970)
-            // }
             return authToken
         }
         return authToken
@@ -160,30 +129,28 @@ final class AuthService: AuthServiceProtocol {
         defaults.set(expiry, forKey: Keys.tokenExpiry)
     }
 
-    // MARK: - FCM Token (Push Notifications)
+    // MARK: - FCM Token
 
-    /// Called by the Firebase Messaging delegate when a new FCM token is issued.
     func setFCMToken(_ token: String) async {
         fcmToken = token
         defaults.set(token, forKey: Keys.fcmToken)
         await registerFCMToken(token)
     }
 
-    /// If we already have an FCM token (e.g. restored from defaults), push it to backend.
     private func registerFCMIfPresent() async {
         guard let fcmToken else { return }
         await registerFCMToken(fcmToken)
     }
 
-    /// Persist FCM token on backend so push notifications can reach this device.
-    private func registerFCMToken(_ token: String) async {
+    private func registerFCMToken(_ token: String) {
         struct FCMBody: Encodable { let token: String }
         let body = FCMBody(token: token)
-        do {
-            try await api.requestNoBody("auth/fcm-token", method: .post, body: body)
-        } catch {
-            // Non-fatal — token will be re-sent on next app foreground
-            print("[Auth] FCM token registration failed: \(error.localizedDescription)")
+        Task {
+            do {
+                try await api.requestNoBody("auth/fcm-token", method: .post, body: body)
+            } catch {
+                print("[Auth] FCM token registration failed: \(error.localizedDescription)")
+            }
         }
     }
 
@@ -195,4 +162,32 @@ final class AuthService: AuthServiceProtocol {
         }
         Task { @MainActor in self.currentUser = user }
     }
+}
+
+// MARK: - API Request/Response Models
+
+struct SignInRequest: Codable, Sendable {
+    let email: String
+    let password: String
+}
+
+struct SignUpRequest: Codable, Sendable {
+    let email: String
+    let password: String
+    let username: String
+}
+
+struct AuthResponse: Codable, Sendable {
+    let token: String
+    let user: AuthUser
+}
+
+struct AuthUser: Codable, Sendable {
+    let id: String
+    let username: String
+    let email: String
+    let avatarURL: String?
+    let isOnline: Bool?
+    let isPremium: Bool?
+    let createdAt: Date?
 }

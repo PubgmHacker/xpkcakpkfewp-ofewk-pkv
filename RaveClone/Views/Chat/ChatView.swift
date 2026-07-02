@@ -1,11 +1,24 @@
 import SwiftUI
 
-// MARK: - Chat View
+// MARK: - Chat View (с UGC-модерацией — Блок 1)
 /// In-room text chat overlay. Messages sent via WebSocket, displayed in real-time.
+///
+/// UGC (Блок 1): каждое сообщение имеет контекстное меню
+/// «Пожаловаться» (Report) и «Заблокировать» (Block).
+/// Заблокированные пользователи мгновенно фильтруются локально.
 struct ChatView: View {
+    @ObservedObject private var loc = LocalizationManager.shared
     let messages: [ChatMessage]
     @Binding var chatText: String
     var onSend: () -> Void
+
+    // UGC-модерация (Блок 1)
+    var onReport: ((ChatMessage) -> Void)?
+    var onBlock: ((ChatMessage) -> Void)?
+
+    // Состояние контекстного меню
+    @State private var reportTarget: ChatMessage?
+    @State private var blockTarget: ChatMessage?
 
     var body: some View {
         NavigationStack {
@@ -13,13 +26,25 @@ struct ChatView: View {
                 Color.raveBackground.ignoresSafeArea()
 
                 VStack(spacing: 0) {
-                    // Messages list
                     ScrollViewReader { proxy in
                         ScrollView {
                             LazyVStack(spacing: 8) {
                                 ForEach(messages) { message in
                                     ChatBubble(message: message)
                                         .id(message.id)
+                                        .contextMenu {
+                                            Button {
+                                                reportTarget = message
+                                            } label: {
+                                                Label(loc.string(.chatReport), systemImage: "flag")
+                                            }
+
+                                            Button(role: .destructive) {
+                                                blockTarget = message
+                                            } label: {
+                                                Label(loc.string(.chatBlock), systemImage: "hand.raised")
+                                            }
+                                        }
                                 }
                             }
                             .padding(.horizontal, 16)
@@ -37,9 +62,8 @@ struct ChatView: View {
                     Divider()
                         .background(Color.raveSurface)
 
-                    // Input bar
                     HStack(spacing: 10) {
-                        TextField("Type a message...", text: $chatText)
+                        TextField(loc.string(.chatPlaceholder), text: $chatText)
                             .textFieldStyle(RaveTextFieldStyle())
                             .onSubmit { onSend() }
 
@@ -55,9 +79,43 @@ struct ChatView: View {
                     .padding(.vertical, 10)
                 }
             }
-            .navigationTitle("Chat")
+            .navigationTitle(loc.string(.chatTitle))
             .navigationBarTitleDisplayMode(.inline)
             .preferredColorScheme(.dark)
+        }
+        // ── Alert: Пожаловаться ──────────────────────────────────
+        .alert(loc.string(.chatReportTitle), isPresented: Binding(
+            get: { reportTarget != nil },
+            set: { if !$0 { reportTarget = nil } }
+        )) {
+            Button(loc.string(.cancel), role: .cancel) { reportTarget = nil }
+            ForEach(ReportReason.allCases) { reason in
+                Button(reason.rawValue) {
+                    if let target = reportTarget {
+                        onReport?(target)
+                    }
+                    reportTarget = nil
+                }
+            }
+        } message: {
+            Text(loc.string(.chatReportMessage))
+        }
+        // ── Alert: Заблокировать ─────────────────────────────────
+        .alert(loc.string(.chatBlockTitle), isPresented: Binding(
+            get: { blockTarget != nil },
+            set: { if !$0 { blockTarget = nil } }
+        )) {
+            Button(loc.string(.cancel), role: .cancel) { blockTarget = nil }
+            Button(loc.string(.chatBlock), role: .destructive) {
+                if let target = blockTarget {
+                    onBlock?(target)
+                }
+                blockTarget = nil
+            }
+        } message: {
+            if let target = blockTarget {
+                Text(String(format: loc.string(.chatBlockMessageWithName), target.senderName))
+            }
         }
     }
 }
@@ -75,7 +133,6 @@ private struct ChatBubble: View {
             if isOwnMessage { Spacer(minLength: 40) }
 
             VStack(alignment: isOwnMessage ? .trailing : .leading, spacing: 4) {
-                // Sender name
                 if !isOwnMessage {
                     Text(message.senderName)
                         .font(.caption2.bold())
@@ -83,7 +140,6 @@ private struct ChatBubble: View {
                         .padding(.leading, 4)
                 }
 
-                // Bubble
                 Text(message.text)
                     .font(.subheadline)
                     .foregroundColor(isOwnMessage ? .white : .raveTextPrimary)
@@ -92,7 +148,6 @@ private struct ChatBubble: View {
                     .background(isOwnMessage ? Color.ravePrimary : Color.raveCard)
                     .clipShape(ChatBubbleShape(isOwn: isOwnMessage))
 
-                // Timestamp
                 Text(message.timeString)
                     .font(.caption2)
                     .foregroundColor(.raveTextSecondary.opacity(0.6))
@@ -126,14 +181,11 @@ private struct ChatBubbleShape: Shape {
                 senderName: "Jordan", text: "This sync is amazing! 🔥",
                 timestamp: .now.addingTimeInterval(-60), isRead: true
             ),
-            ChatMessage(
-                id: "msg_003", roomID: "room_001", senderID: "user_001",
-                senderName: "You", text: "Right?! No more 3-2-1 counting 😂",
-                timestamp: .now, isRead: false
-            ),
         ],
         chatText: .constant(""),
-        onSend: {}
+        onSend: {},
+        onReport: { _ in },
+        onBlock: { _ in }
     )
     .preferredColorScheme(.dark)
 }

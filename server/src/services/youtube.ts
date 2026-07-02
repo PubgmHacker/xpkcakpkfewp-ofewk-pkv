@@ -69,7 +69,7 @@ export class YouTubeService {
     }
 
     // Get the actual stream URL (yt-dlp resolves it)
-    const streamURL = format.url || await this.resolveStreamURL(videoURL, format.formatId);
+    const streamURL = format.url || await this.resolveStreamURL(videoURL, format.format_id);
 
     const result: ExtractedMedia = {
       id: info.id,
@@ -151,6 +151,7 @@ export class YouTubeService {
       // Single format — use it
       if (info.url) {
         return {
+          format_id: "best",
           formatId: "best",
           ext: info.ext,
           url: info.url,
@@ -173,7 +174,6 @@ export class YouTubeService {
       f.height >= 480 &&   // At least 480p
       f.height <= 1080 &&  // At most 1080p (bandwidth)
       f.protocol !== "mhtml" &&
-      !f.url?.includes("googlevideo.com") === false && // Must have URL
       f.url
     );
 
@@ -242,6 +242,68 @@ export class YouTubeService {
     ];
     return patterns.some((p) => p.test(url));
   }
+
+  /**
+   * Search YouTube videos using yt-dlp's built-in `ytsearch` extractor.
+   * Returns lightweight metadata (no stream URL — that's extracted on pick).
+   */
+  async search(query: string, limit = 12): Promise<YouTubeSearchResult[]> {
+    this.log.info({ query, limit }, "[YT] Searching");
+
+    // Sanitize: strip leading/trailing whitespace, cap length
+    const cleanQuery = query.trim().slice(0, 200);
+    if (!cleanQuery) return [];
+
+    const searchArg = `ytsearch${limit}:${cleanQuery}`;
+
+    try {
+      // --flat-playlist + --print gives us quick metadata without resolving streams
+      const { stdout } = await execFileAsync(this.ytdlpPath, [
+        searchArg,
+        "--flat-playlist",
+        "--print",
+        "%(id)s\t%(title)s\t%(duration)s\t%(channel)s\t%(thumbnail)s",
+        "--no-warnings",
+      ], {
+        timeout: 20_000,
+        maxBuffer: 5 * 1024 * 1024,
+      });
+
+      return stdout
+        .trim()
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => {
+          const [id, title, durationStr, channel, thumbnail] = line.split("\t");
+          const duration = durationStr && durationStr !== "NA"
+            ? parseFloat(durationStr)
+            : undefined;
+          return {
+            id,
+            title: title || "Untitled",
+            channel: channel && channel !== "NA" ? channel : undefined,
+            thumbnailURL: thumbnail && thumbnail !== "NA" ? thumbnail : undefined,
+            duration,
+            url: `https://www.youtube.com/watch?v=${id}`,
+          } as YouTubeSearchResult;
+        })
+        .filter((r) => r.id && r.id !== "NA");
+    } catch (err) {
+      this.log.error(err, "[YT] Search failed");
+      throw new Error("YouTube search failed. Try again later.");
+    }
+  }
+}
+
+// ─── Search Result Type ────────────────────────────────
+
+export interface YouTubeSearchResult {
+  id: string;
+  title: string;
+  channel?: string;
+  thumbnailURL?: string;
+  duration?: number;          // seconds
+  url: string;                // canonical watch URL (for extraction later)
 }
 
 // ─── yt-dlp JSON Types (simplified) ───────────────────

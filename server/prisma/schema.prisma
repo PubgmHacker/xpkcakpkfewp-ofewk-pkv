@@ -52,6 +52,19 @@ model User {
   messages      ChatMessage[]
   reports       RoomReport[]
 
+  // ─── Friends (NEW) ──────────────────────────────────────────
+  friendshipsInitiated Friendship[] @relation("FriendFrom")
+  friendshipsReceived  Friendship[] @relation("FriendTo")
+  friendRequestsSent     FriendRequest[] @relation("RequestFrom")
+  friendRequestsReceived FriendRequest[] @relation("RequestTo")
+
+  // ─── DM Messages (NEW) ──────────────────────────────────────
+  dmMessagesSent    DMMessage[]   @relation("DMSender")
+  dmMessagesReceived DMMessage[]  @relation("DMReceiver")
+
+  // ─── Watch History (NEW) ────────────────────────────────────
+  watchHistory   WatchHistory[]
+
   @@map("users")
 }
 
@@ -150,4 +163,84 @@ model RoomReport {
 
   @@index([resolved, createdAt])
   @@map("room_reports")
+}
+
+// ─── Friendship (NEW) ───────────────────────────────
+
+model Friendship {
+  id        String   @id @default(nanoid(16))
+  userAID   String
+  userBID   String
+  createdAt DateTime @default(now())
+
+  userA User @relation("FriendFrom", fields: [userAID], references: [id], onDelete: Cascade)
+  userB User @relation("FriendTo", fields: [userBID], references: [id], onDelete: Cascade)
+
+  @@unique([userAID, userBID])
+  @@index([userBID])
+  @@map("friendships")
+}
+
+// ─── Friend Request (NEW) ───────────────────────────
+
+model FriendRequest {
+  id         String   @id @default(nanoid(16))
+  fromUserID String
+  toUserID   String
+  status     String   @default("pending") // pending, accepted, rejected
+  createdAt  DateTime @default(now())
+
+  fromUser User @relation("RequestFrom", fields: [fromUserID], references: [id], onDelete: Cascade)
+  toUser   User @relation("RequestTo", fields: [toUserID], references: [id], onDelete: Cascade)
+
+  @@unique([fromUserID, toUserID])
+  @@index([toUserID, status])
+  @@map("friend_requests")
+}
+
+// ─── DM Messages (NEW) ──────────────────────────────
+
+model DMMessage {
+  id          String   @id @default(nanoid(16))
+  senderID    String
+  receiverID  String
+  content     String   @db.Text
+  createdAt   DateTime @default(now())
+
+  sender   User @relation("DMSender", fields: [senderID], references: [id], onDelete: Cascade)
+  receiver User @relation("DMReceiver", fields: [receiverID], references: [id], onDelete: Cascade)
+
+  @@index([senderID, receiverID, createdAt])
+  @@index([receiverID, senderID, createdAt])
+  @@map("dm_messages")
+}
+
+// ─── Watch History (NEW) ────────────────────────────
+
+model WatchHistory {
+  id             String   @id @default(nanoid(16))
+  userID         String
+  roomID         String?
+  mediaTitle     String
+  mediaPoster    String?  @db.Text
+  mediaType      String?  // movie, series, music, video
+  watchedAt      DateTime @default(now())
+  durationWatched Int     @default(0) // seconds
+
+  user User @relation(fields: [userID], references: [id], onDelete: Cascade)
+
+  @@index([userID, watchedAt])
+  @@map("watch_history")
+}
+
+// ─── Playback State (NEW) ───────────────────────────
+
+model PlaybackState {
+  id          String   @id @default(nanoid(16))
+  roomID      String   @unique
+  currentTime Float    @default(0)
+  isPlaying   Boolean  @default(false)
+  updatedAt   DateTime @updatedAt
+
+  @@map("playback_states")
 }

@@ -1,6 +1,8 @@
 import Foundation
+import UIKit
 
-// MARK: - Profile View Model
+// MARK: - Profile View Model (Блок 2 — Профиль + История просмотров)
+@MainActor
 @Observable
 final class ProfileViewModel {
 
@@ -10,8 +12,19 @@ final class ProfileViewModel {
     var isLoading = false
     var errorMessage: String?
 
+    /// Локально выбранная аватарка из галереи (кэшируется).
+    var avatarImage: UIImage?
+
+    // История просмотров (Блок 2)
+    var history: [WatchHistoryItem] {
+        historyManager.history
+    }
+
+    /// Выбранный медиа-итем для пересоздания комнаты («Посмотреть снова»).
+    var rewatchMedia: MediaItem?
+
     var displayName: String {
-        user?.displayName ?? "Unknown"
+        user?.displayName ?? "Гость"
     }
 
     var email: String {
@@ -22,9 +35,24 @@ final class ProfileViewModel {
         user?.username ?? ""
     }
 
+    var avatarURL: String? {
+        user?.avatarURL
+    }
+
+    // MARK: - Stats (реальные данные из services)
+
+    var roomsJoined: Int { history.count }
+    var hoursWatched: Int {
+        // Суммарная реально досмотренная длительность (watchedDuration в секундах).
+        let totalSeconds = history.reduce(0.0) { $0 + $1.watchedDuration }
+        return Int((totalSeconds / 3600).rounded())
+    }
+    var friendsCount: Int { 0 }  // Будет populated из FriendManager при интеграции
+
     // MARK: - Services
 
-    private let authService: AuthServiceProtocol
+    let authService: AuthServiceProtocol
+    private let historyManager = WatchHistoryManager()
 
     // MARK: - Init
 
@@ -35,24 +63,70 @@ final class ProfileViewModel {
     func loadUser() async {
         isLoading = true
         user = await authService.currentUser()
+        loadAvatarFromDisk()
         isLoading = false
     }
 
+    // MARK: - Avatar (загрузка из галереи)
+
+    private let avatarCacheKey = "local_avatar_image"
+
+    /// Сохраняет выбранное из галереи фото как локальную аватарку.
+    func saveAvatar(_ image: UIImage) {
+        avatarImage = image
+        // Сохраняем в Documents directory
+        if let data = image.jpegData(compressionQuality: 0.8) {
+            let url = avatarFileURL
+            try? data.write(to: url, options: .atomic)
+        }
+    }
+
+    /// Загружает ранее сохранённую аватарку с диска.
+    func loadAvatarFromDisk() {
+        let url = avatarFileURL
+        guard FileManager.default.fileExists(atPath: url.path),
+              let data = try? Data(contentsOf: url),
+              let img = UIImage(data: data) else { return }
+        avatarImage = img
+    }
+
+    private var avatarFileURL: URL {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        return docs.appendingPathComponent("avatar.jpg")
+    }
+
+    // MARK: - History Actions (Блок 2)
+
+    func removeHistoryItem(_ item: WatchHistoryItem) {
+        historyManager.remove(item)
+    }
+
+    func clearHistory() {
+        historyManager.clearAll()
+    }
+
+    /// Открывает создание новой комнаты с этим видео.
+    func rewatch(_ item: WatchHistoryItem) {
+        rewatchMedia = item.mediaItem
+    }
+
+    // MARK: - Account
+
     func updateUsername(_ newName: String) async {
-        // TODO: Update via API
-        user?.username = newName
+        guard let current = user else { return }
+        user = User(id: current.id, username: newName, email: current.email,
+                    avatarURL: current.avatarURL, isOnline: current.isOnline,
+                    isPremium: current.isPremium, createdAt: current.createdAt)
     }
 
     func deleteAccount() async {
         isLoading = true
         errorMessage = nil
-
         do {
             try await authService.deleteAccount()
         } catch {
             errorMessage = error.localizedDescription
         }
-
         isLoading = false
     }
 }

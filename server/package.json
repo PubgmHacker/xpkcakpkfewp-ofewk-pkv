@@ -24,9 +24,12 @@
     "@fastify/rate-limit": "^10.0.0",
     "@fastify/websocket": "^11.0.0",
     "@prisma/client": "^5.22.0",
+    "bcryptjs": "^3.0.3",
     "fastify": "^5.1.0",
     "firebase-admin": "^12.7.0",
+    "google-auth-library": "^10.9.0",
     "ioredis": "^5.4.1",
+    "jose": "^6.2.3",
     "nanoid": "^5.0.9",
     "pino-pretty": "^11.3.0",
     "prisma": "^5.22.0",
@@ -35,9 +38,10 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/nanoid": "^2.0.0",
     "@types/node": "^22.10.0",
     "@types/ws": "^8.5.13",
-    "@types/nanoid": "^2.0.0",
     "eslint": "^9.16.0",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"

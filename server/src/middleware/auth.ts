@@ -1,16 +1,25 @@
 import type { FastifyRequest, FastifyReply } from "fastify";
 import fp from "fastify-plugin";
 import jwt from "@fastify/jwt";
-import type { Config } from "../config/index.js";
 import { prisma } from "../config/db.js";
 
-declare module "fastify" {
-  interface FastifyRequest {
-    user?: {
+// ─── Type Augmentation ──────────────────────────────────
+// @fastify/jwt already declares `request.user` on FastifyRequest.
+// We extend its payload type here instead of redeclaring the property.
+declare module "@fastify/jwt" {
+  interface FastifyJWT {
+    payload: { sub: string; username: string };
+    user: {
       id: string;
       username: string;
       email: string;
     };
+  }
+}
+
+declare module "fastify" {
+  interface FastifyInstance {
+    authenticate: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
   }
 }
 

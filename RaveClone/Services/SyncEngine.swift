@@ -187,15 +187,15 @@ final class SyncEngine: NSObject, ObservableObject, @unchecked Sendable {
         guard isHost else { return }
         let clamped = max(0, min(time, duration))
 
-        // Cancel any in-flight seek
-        seekCompletionHandler = { [weak self] _ in
+        let handler: (Bool) -> Void = { [weak self] _ in
             guard let self else { return }
             self.currentTime = clamped
             self.broadcastSyncCommand(.seek, mediaTime: clamped)
             self.seekCompletionHandler = nil
         }
+        seekCompletionHandler = handler
         player?.seek(to: CMTime(seconds: clamped, preferredTimescale: 600),
-                     completionHandler: seekCompletionHandler)
+                     completionHandler: handler)
     }
 
     func seekRelative(_ delta: TimeInterval) {
@@ -487,7 +487,7 @@ final class SyncEngine: NSObject, ObservableObject, @unchecked Sendable {
         broadcast(msg)
     }
 
-    private func requestStateFromHost() {
+    func requestStateFromHost() {
         let msg = SyncMessage(
             command: .stateRequest,
             roomID: roomID,

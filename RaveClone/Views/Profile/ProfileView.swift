@@ -1,10 +1,22 @@
 import SwiftUI
+import PhotosUI
 
-// MARK: - Profile View
+// MARK: - Profile View v3 (Premium + Edit Profile)
+/// Профиль: премиальный хедер, бейдж Premium, статистика, история.
+/// Настройки — через шестерёнку.
 struct ProfileView: View {
     @State private var viewModel: ProfileViewModel
     @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var loc = LocalizationManager.shared
     var onSignOut: () -> Void
+
+    @State private var showSettings = false
+    @State private var showEditProfile = false
+    @State private var showPaywall = false
+    @State private var showPhotoPicker = false
+    @State private var selectedPhotoItem: PhotosPickerItem?
+    @State private var friendManager = FriendManager()
+    @State private var isPremium = false
 
     init(viewModel: ProfileViewModel, onSignOut: @escaping () -> Void) {
         _viewModel = State(initialValue: viewModel)
@@ -12,139 +24,527 @@ struct ProfileView: View {
     }
 
     var body: some View {
+        ZStack {
+            AnimatedGradientBackground()
+
+            ScrollView {
+                VStack(spacing: 24) {
+                    profileHeader
+                    premiumBanner
+                    activityBlock
+                    statsRow
+                    watchHistorySection
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 40)
+            }
+        }
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(Color.clear, for: .navigationBar)
+        .toolbarColorScheme(.dark, for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text(loc.string(.profileTitle))
+                    .font(.headline)
+                    .foregroundColor(.white)
+            }
+            // Карандаш — редактировать профиль
+            ToolbarItem(placement: .topBarLeading) {
+                Button { showEditProfile = true } label: {
+                    Image(systemName: "pencil")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.ravePrimary)
+                }
+            }
+            // Шестерёнка — настройки
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { showSettings = true } label: {
+                    Image(systemName: "gearshape.fill")
+                        .font(.system(size: 18))
+                        .foregroundColor(.ravePrimary)
+                }
+            }
+        }
+        .preferredColorScheme(.dark)
+        .task {
+            await viewModel.loadUser()
+            isPremium = viewModel.user?.isPremium ?? false
+        }
+        .sheet(isPresented: $showSettings) {
+            SettingsView(onSignOut: {
+                Task {
+                    try? await viewModel.authService.signOut()
+                    onSignOut()
+                    dismiss()
+                }
+            }, onDeleteAccount: {
+                Task {
+                    await viewModel.deleteAccount()
+                    onSignOut()
+                    dismiss()
+                }
+            })
+        }
+        .sheet(isPresented: $showEditProfile) {
+            EditProfileSheet(viewModel: viewModel)
+        }
+        .sheet(isPresented: $showPaywall) {
+            PaywallView(
+                onPurchase: {
+                    isPremium = true
+                    showPaywall = false
+                },
+                onRestore: { },
+                onDismiss: { showPaywall = false }
+            )
+        }
+        .photosPicker(isPresented: $showPhotoPicker, selection: $selectedPhotoItem, matching: .images)
+        .onChange(of: selectedPhotoItem) { _, newItem in
+            guard let newItem else { return }
+            newItem.loadTransferable(type: Data.self) { result in
+                DispatchQueue.main.async {
+                    if case .success(let data?) = result, let img = UIImage(data: data) {
+                        viewModel.saveAvatar(img)
+                    }
+                }
+            }
+            selectedPhotoItem = nil
+        }
+    }
+
+    // MARK: - Profile Header
+
+    private var profileHeader: some View {
+        VStack(spacing: 14) {
+            Button { showPhotoPicker = true } label: {
+                ZStack(alignment: .bottomTrailing) {
+                    avatarView
+                        .frame(width: 120, height: 120)
+                        .clipShape(Circle())
+                        .overlay(Circle().stroke(Color.raveGradient, lineWidth: 3))
+                        .neonGlow(color: .ravePrimary, radius: 20, y: 8)
+
+                    Image(systemName: "camera.circle.fill")
+                        .font(.system(size: 28))
+                        .foregroundColor(.white)
+                        .background(Circle().fill(Color.ravePrimary))
+                        .clipShape(Circle())
+                        .shadow(color: .black.opacity(0.3), radius: 4, y: 2)
+                }
+            }
+            .buttonStyle(.plain)
+
+            VStack(spacing: 4) {
+                Text(viewModel.displayName)
+                    .font(.title2.bold())
+                    .foregroundColor(.white)
+                Text(viewModel.email)
+                    .font(.caption)
+                    .foregroundColor(.raveTextSecondary)
+            }
+
+            // Кнопка редактировать — премиум градиент
+            Button { showEditProfile = true } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "pencil")
+                    Text("Редактировать профиль")
+                }
+                .font(.subheadline.bold())
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(Color.raveGradient)
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+                .shadow(color: .ravePrimary.opacity(0.3), radius: 10, y: 4)
+            }
+            .padding(.horizontal, 20)
+        }
+        .padding(.top, 20)
+    }
+
+    @ViewBuilder
+    private var avatarView: some View {
+        if let image = viewModel.avatarImage {
+            Image(uiImage: image).resizable().scaledToFill()
+        } else if let avatarURL = viewModel.avatarURL, let url = URL(string: avatarURL) {
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .success(let image): image.resizable().scaledToFill()
+                default: avatarFallback
+                }
+            }
+        } else {
+            avatarFallback
+        }
+    }
+
+    private var avatarFallback: some View {
+        ZStack {
+            Circle().fill(
+                LinearGradient(colors: [Color.ravePrimary, Color.raveAccent],
+                               startPoint: .topLeading, endPoint: .bottomTrailing)
+            )
+            Text(viewModel.displayName.prefix(2).uppercased())
+                .font(.system(size: 42, weight: .bold))
+                .foregroundColor(.white)
+        }
+    }
+
+    // MARK: - Premium Banner
+
+    @ViewBuilder
+    private var premiumBanner: some View {
+        if isPremium {
+            // Бейдж Premium — корона + glow
+            HStack(spacing: 10) {
+                Image(systemName: "crown.fill")
+                    .font(.title3)
+                    .foregroundColor(.raveWarning)
+                Text("PREMIUM")
+                    .font(.headline.bold())
+                    .foregroundColor(.raveWarning)
+                    .tracking(1)
+                Spacer()
+                Text("Активна")
+                    .font(.caption.bold())
+                    .foregroundColor(.raveGreen)
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 14)
+            .background(
+                LinearGradient(colors: [Color.raveWarning.opacity(0.15), Color.raveWarning.opacity(0.05)],
+                               startPoint: .leading, endPoint: .trailing)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(Color.raveWarning.opacity(0.3), lineWidth: 1)
+            )
+        } else {
+            // Кнопка оформления подписки
+            Button { showPaywall = true } label: {
+                HStack(spacing: 12) {
+                    ZStack {
+                        Circle()
+                            .fill(Color.raveWarning.opacity(0.2))
+                            .frame(width: 44, height: 44)
+                        Image(systemName: "crown.fill")
+                            .font(.system(size: 20))
+                            .foregroundColor(.raveWarning)
+                    }
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Оформить Premium")
+                            .font(.subheadline.bold())
+                            .foregroundColor(.white)
+                        Text("Без рекламы · 4K · Темы · Бейдж")
+                            .font(.caption)
+                            .foregroundColor(.raveTextSecondary)
+                    }
+
+                    Spacer()
+
+                    Image(systemName: "chevron.right")
+                        .font(.caption)
+                        .foregroundColor(.raveWarning)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+                .background(
+                    LinearGradient(colors: [Color.raveWarning.opacity(0.15), Color.raveAccent.opacity(0.08)],
+                                   startPoint: .topLeading, endPoint: .bottomTrailing)
+                    .opacity(0.6)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 16))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(Color.raveWarning.opacity(0.3), lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    // MARK: - Activity Block (что смотрит сейчас + последние просмотры)
+
+    private var activityBlock: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: "waveform")
+                    .font(.system(size: 14))
+                    .foregroundColor(.ravePrimary)
+                Text("Активность")
+                    .font(.system(size: 18, weight: .bold, design: .rounded))
+                    .foregroundColor(.raveTextPrimary)
+            }
+
+            // Что сейчас смотрит (если есть активная комната)
+            HStack(spacing: 10) {
+                ZStack {
+                    Circle()
+                        .fill(Color.raveGreen.opacity(0.15))
+                        .frame(width: 40, height: 40)
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 16))
+                        .foregroundColor(.raveGreen)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Сейчас в комнате")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(.raveTextPrimary)
+                    Text("Смотрит с друзьями")
+                        .font(.system(size: 13))
+                        .foregroundColor(.raveTextSecondary)
+                }
+                Spacer()
+                PulsingDot(color: .raveGreen).frame(width: 8, height: 8)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .glassCard(cornerRadius: 14, opacity: 0.04)
+        }
+    }
+
+    // MARK: - Stats (кликабельные)
+
+    private var statsRow: some View {
+        HStack(spacing: 0) {
+            statBox(value: "\(viewModel.roomsJoined)", label: loc.string(.profileStatsRooms))
+            Divider().frame(height: 40).background(Color.white.opacity(0.06))
+            statBox(value: "\(viewModel.hoursWatched)", label: loc.string(.profileStatsHours))
+            Divider().frame(height: 40).background(Color.white.opacity(0.06))
+            statBox(value: "\(friendManager.friends.count)", label: loc.string(.profileStatsFriends))
+        }
+        .padding(.vertical, 16)
+        .glassCard(cornerRadius: 18, opacity: 0.04)
+    }
+
+    private func statBox(value: String, label: String) -> some View {
+        VStack(spacing: 6) {
+            Text(value)
+                .font(.system(size: 28, weight: .heavy, design: .rounded).monospacedDigit())
+                .foregroundColor(.raveTextPrimary)
+            Text(label)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(.raveTextSecondary)
+        }
+        .frame(maxWidth: .infinity)
+        .contentShape(Rectangle())
+    }
+
+    // MARK: - Watch History (горизонтальная карусель постеров)
+
+    private var watchHistorySection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text(loc.string(.profileHistory))
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                    .foregroundColor(.raveTextPrimary)
+                Spacer()
+                if !viewModel.history.isEmpty {
+                    Button(loc.string(.profileClear)) { viewModel.clearHistory() }
+                        .font(.system(size: 13))
+                        .foregroundColor(.raveDanger)
+                }
+            }
+
+            if viewModel.history.isEmpty {
+                VStack(spacing: 10) {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .font(.system(size: 36))
+                        .foregroundColor(.raveTextTertiary)
+                    Text(loc.string(.profileHistoryEmpty))
+                        .font(.subheadline)
+                        .foregroundColor(.raveTextSecondary)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 30)
+                .glassCard(cornerRadius: 16, opacity: 0.04)
+            } else {
+                // Горизонтальная карусель постеров
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        ForEach(viewModel.history) { item in
+                            WatchHistoryPoster(item: item) { viewModel.rewatch(item) }
+                                .contextMenu {
+                                    Button(role: .destructive) {
+                                        viewModel.removeHistoryItem(item)
+                                    } label: {
+                                        Label(loc.string(.delete), systemImage: "trash")
+                                    }
+                                }
+                        }
+                    }
+                    .padding(.horizontal, 2)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Edit Profile Sheet
+/// Изменение имени пользователя.
+struct EditProfileSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var viewModel: ProfileViewModel
+    @State private var newUsername = ""
+    @State private var isSaving = false
+
+    init(viewModel: ProfileViewModel) {
+        _viewModel = State(initialValue: viewModel)
+        _newUsername = State(initialValue: viewModel.username)
+    }
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Color.raveBackground.ignoresSafeArea()
+
+                VStack(spacing: 24) {
+                    // Аватарка
+                    if let image = viewModel.avatarImage {
+                        Image(uiImage: image)
+                            .resizable().scaledToFill()
+                            .frame(width: 100, height: 100)
+                            .clipShape(Circle())
+                            .overlay(Circle().stroke(Color.raveGradient, lineWidth: 3))
+                    } else {
+                        ZStack {
+                            Circle().fill(Color.raveGradient).frame(width: 100, height: 100)
+                            Text(viewModel.displayName.prefix(2).uppercased())
+                                .font(.system(size: 36, weight: .bold))
+                                .foregroundColor(.white)
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Имя пользователя")
+                            .font(.subheadline.bold())
+                            .foregroundColor(.raveTextPrimary)
+                        TextField("Введите имя", text: $newUsername)
+                            .textFieldStyle(RaveTextFieldStyle())
+                    }
+
+                    Spacer()
+
+                    // Кнопка сохранить
+                    Button {
+                        Task {
+                            isSaving = true
+                            await viewModel.updateUsername(newUsername)
+                            isSaving = false
+                            dismiss()
+                        }
+                    } label: {
+                        HStack {
+                            if isSaving { ProgressView().tint(.white) }
+                            Text("Сохранить")
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .raveButtonStyle()
+                    .disabled(newUsername.trimmingCharacters(in: .whitespaces).isEmpty || isSaving)
+                }
+                .padding(.horizontal, 24)
+                .padding(.top, 32)
+            }
+            .navigationTitle("Редактировать")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Отмена") { dismiss() }
+                        .foregroundColor(.raveTextSecondary)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Settings View (без друзей — теперь в TabBar)
+struct SettingsView: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var loc = LocalizationManager.shared
+    var onSignOut: () -> Void
+    var onDeleteAccount: () -> Void
+
+    @State private var showNotifications = false
+    @State private var showPrivacy = false
+    @State private var showLanguage = false
+    @State private var showDeleteAlert = false
+
+    var body: some View {
         NavigationStack {
             ZStack {
                 Color.raveBackground.ignoresSafeArea()
 
                 ScrollView {
-                    VStack(spacing: 24) {
-                        // Avatar + name
-                        VStack(spacing: 16) {
-                            // Avatar circle
-                            ZStack {
-                                Circle()
-                                    .fill(.raveGradient)
-                                    .frame(width: 100, height: 100)
-
-                                Text(viewModel.displayName.prefix(2).uppercased())
-                                    .font(.system(size: 36, weight: .bold))
-                                    .foregroundColor(.white)
-                            }
-
-                            VStack(spacing: 4) {
-                                Text(viewModel.displayName)
-                                    .font(.title2.bold())
-                                    .foregroundColor(.raveTextPrimary)
-
-                                Text(viewModel.email)
-                                    .font(.caption)
-                                    .foregroundColor(.raveTextSecondary)
-                            }
-                        }
-                        .padding(.top, 20)
-
-                        // Stats
-                        HStack(spacing: 0) {
-                            statBox(value: "42", label: "Rooms Joined")
-                            statBox(value: "128", label: "Hours Watched")
-                            statBox(value: "15", label: "Friends")
-                        }
-                        .raveCardStyle()
-
-                        // Settings sections
-                        settingsSection("Account") {
-                            settingsRow(icon: "person.text.rectangle", title: "Edit Profile", color: .ravePrimary) {}
-                            settingsRow(icon: "bell", title: "Notifications", color: .raveWarning) {}
-                            settingsRow(icon: "shield", title: "Privacy", color: .raveGreen) {}
+                    VStack(alignment: .leading, spacing: 28) {
+                        // Настройки
+                        settingsSection("Настройки") {
+                            settingsRow(icon: "bell.fill", title: loc.string(.profileNotifications), color: .raveWarning) { showNotifications = true }
+                            settingsRow(icon: "shield.fill", title: loc.string(.profilePrivacy), color: .raveGreen) { showPrivacy = true }
+                            settingsRow(icon: "globe", title: loc.string(.profileLanguage), color: .raveAccent) { showLanguage = true }
                         }
 
-                        settingsSection("Preferences") {
-                            settingsRow(icon: "paintbrush", title: "Theme", color: .raveSecondary) {}
-                            settingsRow(icon: "speaker.wave.2", title: "Audio Settings", color: .raveAccent) {}
-                            settingsRow(icon: "network", title: "Sync Settings", color: .ravePrimary) {}
-                        }
-
-                        settingsSection("Danger Zone") {
+                        // Опасная зона
+                        settingsSection("Опасная зона") {
                             Button(role: .destructive) {
                                 showDeleteAlert = true
                             } label: {
                                 HStack {
-                                    Image(systemName: "trash")
-                                        .foregroundColor(.raveDanger)
-                                    Text("Delete Account")
-                                        .foregroundColor(.raveDanger)
+                                    Image(systemName: "trash").foregroundColor(.raveDanger)
+                                    Text(loc.string(.profileDeleteAccount)).foregroundColor(.raveDanger)
                                     Spacer()
-                                    Image(systemName: "chevron.right")
-                                        .font(.caption)
-                                        .foregroundColor(.raveTextSecondary.opacity(0.5))
+                                    Image(systemName: "chevron.right").font(.caption).foregroundColor(.raveTextSecondary.opacity(0.5))
                                 }
                             }
                         }
 
-                        // Sign Out
-                        Button(action: {
-                            Task {
-                                await viewModel.authService.signOut()
-                                onSignOut()
-                                dismiss()
+                        // Выход
+                        Button(action: { dismiss(); onSignOut() }) {
+                            HStack {
+                                Image(systemName: "arrow.right.square.fill")
+                                Text(loc.string(.profileSignOut))
+                                Spacer()
                             }
-                        }) {
-                            Text("Sign Out")
-                                .frame(maxWidth: .infinity)
+                            .font(.headline)
+                            .foregroundColor(.raveWarning)
+                            .padding(.vertical, 10)
+                            .padding(.horizontal, 4)
                         }
-                        .raveSecondaryButtonStyle()
-                        .padding(.top, 8)
-
-                        Spacer(minLength: 40)
                     }
                     .padding(.horizontal, 20)
+                    .padding(.top, 20)
                 }
             }
-            .navigationTitle("Profile")
+            .navigationTitle("Настройки")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { dismiss() }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(loc.string(.done)) { dismiss() }
                         .foregroundColor(.ravePrimary)
                 }
             }
-            .preferredColorScheme(.dark)
-            .task {
-                await viewModel.loadUser()
-            }
-            .alert("Delete Account?", isPresented: $showDeleteAlert) {
-                Button("Cancel", role: .cancel) {}
-                Button("Delete", role: .destructive) {
-                    Task {
-                        await viewModel.deleteAccount()
-                        onSignOut()
-                        dismiss()
-                    }
+            .alert(loc.string(.profileDeleteConfirm), isPresented: $showDeleteAlert) {
+                Button(loc.string(.cancel), role: .cancel) {}
+                Button(loc.string(.delete), role: .destructive) {
+                    dismiss()
+                    onDeleteAccount()
                 }
             } message: {
-                Text("This action cannot be undone. All your data will be permanently deleted.")
+                Text(loc.string(.profileDeleteMessage))
+            }
+            .sheet(isPresented: $showPrivacy) {
+                PrivacySettingsView().preferredColorScheme(.dark).presentationDetents([.medium, .large])
+            }
+            .sheet(isPresented: $showLanguage) {
+                LanguagePickerView().preferredColorScheme(.dark).presentationDetents([.medium])
+            }
+            .sheet(isPresented: $showNotifications) {
+                NotificationsView().preferredColorScheme(.dark).presentationDetents([.medium, .large])
             }
         }
-    }
-
-    // MARK: - State
-    @State private var showDeleteAlert = false
-
-    // MARK: - Components
-
-    private func statBox(value: String, label: String) -> some View {
-        VStack(spacing: 4) {
-            Text(value)
-                .font(.title2.bold().monospacedDigit())
-                .foregroundColor(.ravePrimary)
-
-            Text(label)
-                .font(.caption2)
-                .foregroundColor(.raveTextSecondary)
-                .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 12)
     }
 
     private func settingsSection<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
@@ -154,7 +554,6 @@ struct ProfileView: View {
                 .foregroundColor(.raveTextSecondary)
                 .padding(.leading, 4)
                 .padding(.bottom, 8)
-
             content()
         }
     }
@@ -168,19 +567,184 @@ struct ProfileView: View {
                     .frame(width: 30, height: 30)
                     .background(color.opacity(0.15))
                     .clipShape(RoundedRectangle(cornerRadius: 8))
-
                 Text(title)
                     .font(.subheadline)
                     .foregroundColor(.raveTextPrimary)
-
                 Spacer()
-
                 Image(systemName: "chevron.right")
                     .font(.caption)
                     .foregroundColor(.raveTextSecondary.opacity(0.5))
             }
             .padding(.vertical, 10)
             .padding(.horizontal, 4)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Watch History Poster (вертикальный постер для карусели)
+/// Постер 120×170 с прогресс-баром просмотра и названием снизу.
+struct WatchHistoryPoster: View {
+    let item: WatchHistoryItem
+    var onRewatch: () -> Void
+
+    var body: some View {
+        Button(action: onRewatch) {
+            VStack(alignment: .leading, spacing: 6) {
+                ZStack(alignment: .bottom) {
+                    // Постер
+                    posterImage
+                        .frame(width: 120, height: 170)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
+                        )
+
+                    // Прогресс-бар
+                    if let progress = item.progress {
+                        GeometryReader { geo in
+                            ZStack(alignment: .leading) {
+                                Rectangle().fill(Color.black.opacity(0.4)).frame(height: 3)
+                                Rectangle().fill(Color.ravePrimary).frame(width: geo.size.width * progress, height: 3)
+                            }
+                        }
+                        .frame(width: 120, height: 3)
+                    }
+
+                    // Иконка типа медиа
+                    Image(systemName: mediaIcon)
+                        .font(.system(size: 10))
+                        .foregroundColor(.white.opacity(0.7))
+                        .padding(6)
+                        .background(Color.black.opacity(0.4))
+                        .clipShape(Circle())
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                        .padding(6)
+                }
+                .frame(width: 120, height: 170)
+
+                Text(item.title)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.raveTextPrimary)
+                    .lineLimit(1)
+                    .frame(width: 120, alignment: .leading)
+
+                Text(item.formattedDate)
+                    .font(.system(size: 11))
+                    .foregroundColor(.raveTextSecondary)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var mediaIcon: String {
+        switch item.mediaType {
+        case "movie": return "film"
+        case "series": return "tv"
+        case "music": return "music.note"
+        case "livestream": return "dot.radiowaves.left.and.right"
+        default: return "video"
+        }
+    }
+
+    @ViewBuilder
+    private var posterImage: some View {
+        if let urlStr = item.thumbnailURL, let url = URL(string: urlStr) {
+            AsyncImage(url: url) { phase in
+                if let image = phase.image {
+                    image.resizable().aspectRatio(contentMode: .fill)
+                } else {
+                    posterGradient
+                }
+            }
+        } else {
+            posterGradient
+        }
+    }
+
+    private var posterGradient: some View {
+        LinearGradient(
+            colors: gradientPalette,
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+        .overlay(
+            Image(systemName: "play.circle.fill")
+                .font(.system(size: 28))
+                .foregroundColor(.white.opacity(0.6))
+        )
+    }
+
+    private var gradientPalette: [Color] {
+        let palettes: [[Color]] = [
+            [Color.ravePrimary.opacity(0.4), .black],
+            [Color.raveAccent.opacity(0.4), .black],
+            [Color.raveCyan.opacity(0.4), .black],
+            [Color.raveWarning.opacity(0.4), .black],
+        ]
+        return palettes[abs(item.id.hashValue) % palettes.count]
+    }
+}
+
+// MARK: - Watch History Card (старый — оставлен для совместимости)
+struct WatchHistoryCard: View {
+    let item: WatchHistoryItem
+    var onRewatch: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                thumbnail
+                    .frame(width: 100, height: 60)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+
+                if let progress = item.progress {
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Rectangle().fill(Color.black.opacity(0.4)).frame(height: 3)
+                            Rectangle().fill(Color.ravePrimary).frame(width: geo.size.width * progress, height: 3)
+                        }
+                    }
+                    .frame(width: 100, height: 3)
+                }
+            }
+            .frame(width: 100, height: 60)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(item.title)
+                    .font(.subheadline.bold())
+                    .foregroundColor(.raveTextPrimary)
+                    .lineLimit(2)
+                Text(item.formattedDate)
+                    .font(.caption2)
+                    .foregroundColor(.raveTextSecondary)
+            }
+
+            Spacer()
+
+            Button(action: onRewatch) {
+                Image(systemName: "arrow.clockwise.circle.fill")
+                    .font(.title2)
+                    .foregroundColor(.ravePrimary)
+            }
+        }
+        .padding(12)
+        .glassCard(cornerRadius: 14)
+    }
+
+    @ViewBuilder
+    private var thumbnail: some View {
+        if let urlStr = item.thumbnailURL, let url = URL(string: urlStr) {
+            AsyncImage(url: url) { phase in
+                if let image = phase.image {
+                    image.resizable().aspectRatio(contentMode: .fill)
+                } else {
+                    Rectangle().fill(Color.raveSurface)
+                }
+            }
+        } else {
+            Rectangle().fill(Color.raveSurface)
         }
     }
 }

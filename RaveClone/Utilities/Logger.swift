@@ -30,6 +30,12 @@ enum Logger {
         static func error(_ msg: String) { Logger.log(msg, domain: "WebRTC", level: .error) }
     }
 
+    enum store {
+        static func info(_ msg: String)  { Logger.log(msg, domain: "StoreKit", level: .info) }
+        static func warn(_ msg: String)  { Logger.log(msg, domain: "StoreKit", level: .warn) }
+        static func error(_ msg: String) { Logger.log(msg, domain: "StoreKit", level: .error) }
+    }
+
     // MARK: - Core
 
     private enum Level: String {

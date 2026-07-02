@@ -46,6 +46,22 @@ export interface WebRTCSignalingMessage {
   sdpMLineIndex?: number;
 }
 
+// Screen Share signaling — host broadcasts screen, guests subscribe
+export type ScreenShareMessageType =
+  | "screen_share_start"    // host announces it's streaming
+  | "screen_share_stop"     // host stops streaming
+  | "screen_share_subscribe" // guest wants to receive the stream
+  | "screen_share_request_offer"; // guest asks host for SDP offer
+
+export interface ScreenShareMessage {
+  type: ScreenShareMessageType;
+  roomID: string;
+  userID: string;          // sender
+  hostID?: string;         // who is streaming
+  viewerCount?: number;    // how many guests are watching
+  bitrate?: number;        // negotiated bitrate cap
+}
+
 // Chat message from client
 export interface ChatPayload {
   type: "chat";
@@ -95,6 +111,7 @@ export interface LeaveRoomMessage {
 export type InboundMessage =
   | (SyncMessage & { command: SyncCommand })
   | WebRTCSignalingMessage
+  | ScreenShareMessage
   | ChatPayload
   | JoinRoomMessage
   | LeaveRoomMessage

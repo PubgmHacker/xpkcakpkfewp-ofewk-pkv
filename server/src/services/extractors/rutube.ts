@@ -1,16 +1,11 @@
-type Logger = { info(msg: string, ...args: any[]): void; warn(msg: string, ...args: any[]): void; error(msg: string, ...args: any[]): void };
+import type { FastifyBaseLogger } from "fastify";
 import { execFile } from "child_process";
 import { promisify } from "util";
 
 const exec = promisify(execFile);
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  RuTube экстрактор
-//
-//  RuTube (rutube.ru/video/<id>) отдаёт HLS (.m3u8) и прогрессивные форматы.
-//  yt-dlp поддерживает RuTube — извлекает либо HLS, либо прямые .mp4.
-//  expo-av отлично играет .m3u8 (HLS), поэтому предпочтительнее он — стабильнее
-//  и адаптивный битрейт.
+//  RuTube extractor — yt-dlp based
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface RuTubeInfo {
@@ -18,14 +13,14 @@ export interface RuTubeInfo {
   title: string;
   duration: number;
   thumbnailURL?: string;
-  streamURL: string;       // прямой .m3u8 или .mp4
+  streamURL: string;
   format: "m3u8" | "mp4";
   quality: string;
   author?: string;
 }
 
-export async function extractRuTube(url: string, ytdlpPath: string, log: Logger): Promise<RuTubeInfo> {
-  log.info({ url }, "[RuTube] Извлечение видео");
+export async function extractRuTube(url: string, ytdlpPath: string, log: FastifyBaseLogger): Promise<RuTubeInfo> {
+  log.info({ url }, "[RuTube] Extracting video");
 
   const { stdout } = await exec(ytdlpPath, [
     "--dump-json",

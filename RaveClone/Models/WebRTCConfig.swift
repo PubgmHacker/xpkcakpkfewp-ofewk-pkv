@@ -18,12 +18,12 @@ struct WebRTCConfig: Sendable {
                     username: nil,
                     credential: nil
                 ),
-                // Add your TURN server here for NAT traversal
-                // ICEServer(
-                //     urls: ["turn:your-turn-server.com:3478"],
-                //     username: "user",
-                //     credential: "pass"
-                // ),
+                // Open Relay (бесплатный TURN для NAT traversal)
+                ICEServer(
+                    urls: ["turn:openrelay.metered.ca:443", "turn:openrelay.metered.ca:443?transport=tcp"],
+                    username: "openrelayproject",
+                    credential: "openrelayproject"
+                ),
             ],
             audioConstraints: .default
         )

@@ -23,6 +23,7 @@ export interface AppUser {
   email?: string;
   avatar?: string | null;
   isGuest: boolean;
+  role?: string;
   createdAt?: string;
 }
 

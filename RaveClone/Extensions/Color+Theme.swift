@@ -1,34 +1,97 @@
 import SwiftUI
 
-// MARK: - App Theme Colors
+// MARK: - RaveClone v3 Theme — "Pure Black × Ice Glow"
+///
+/// Принципы:
+/// • Базовый фон — настоящий чёрный (#000000 / #050507), не серый, не фиолетовый.
+/// • Акценты — ледяной голубой (#6EC1E4), неоново-розовый (#FF3D8B), золото (#E8B339).
+///   Фиолетовый полностью убран из основных цветов.
+/// • Контраст — за счёт чистого белого текста и точечных подсветок (blur-orbs).
+/// • Стекло — максимально прозрачное: blur + тонкая обводка 0.5pt rgba(255,255,255,0.15).
 extension Color {
-    // Primary palette — dark streaming vibe
-    static let ravePrimary = Color(red: 0.45, green: 0.27, blue: 0.92)      // Deep purple
-    static let raveSecondary = Color(red: 0.24, green: 0.47, blue: 0.96)     // Electric blue
-    static let raveAccent = Color(red: 1.0, green: 0.36, blue: 0.52)        // Hot pink
-    static let raveGreen = Color(red: 0.29, green: 0.87, blue: 0.54)        // Success green
-    static let raveWarning = Color(red: 1.0, green: 0.78, blue: 0.27)       // Warning yellow
-    static let raveDanger = Color(red: 1.0, green: 0.27, blue: 0.27)        // Error red
+    // ── Accents ──────────────────────────────────────────────────────
+    /// Ледяной голубой — основной акцент (CTA, активные элементы)
+    static let ravePrimary = Color(hex: 0x6EC1E4)
+    /// Электрик-синий — вторичный
+    static let raveSecondary = Color(hex: 0x3D8DE0)
+    /// Неоново-розовый — live-индикатор, эмоции
+    static let raveAccent = Color(hex: 0xFF3D8B)
+    /// Светящийся cyan (highlights, glow)
+    static let raveCyan = Color(hex: 0x22D3EE)
+    /// Изумрудный — live-статус (онлайн)
+    static let raveGreen = Color(hex: 0x00E676)
+    /// Золото — premium
+    static let raveWarning = Color(hex: 0xE8B339)
+    /// Красный — danger / mute
+    static let raveDanger = Color(hex: 0xFF4757)
 
-    // Backgrounds
-    static let raveBackground = Color(red: 0.07, green: 0.07, blue: 0.11)
-    static let raveCard = Color(red: 0.12, green: 0.12, blue: 0.18)
-    static let raveSurface = Color(red: 0.18, green: 0.18, blue: 0.26)
+    // ── Backgrounds — TRUE BLACK ─────────────────────────────────────
+    /// Основной фон приложения — почти чёрный (лёгкий синий оттенок для глубины)
+    static let raveBackground = Color(hex: 0x000000)
+    /// Фон карточек — чисто чёрный с микро-прозрачностью
+    static let raveCard = Color(hex: 0x0A0A0A)
+    /// Границы / surfaces
+    static let raveSurface = Color(hex: 0x141414)
 
-    // Text
+    // ── Text ─────────────────────────────────────────────────────────
     static let raveTextPrimary = Color.white
-    static let raveTextSecondary = Color(white: 0.65)
+    static let raveTextSecondary = Color(white: 0.62)
+    static let raveTextTertiary = Color(white: 0.38)
 
-    // Gradients
+    // ── Glass ────────────────────────────────────────────────────────
+    static let raveGlass = Color.white.opacity(0.05)
+
+    // ── Gradients ────────────────────────────────────────────────────
+    /// Главный градиент CTA: ледяной голубой → розовый
     static let raveGradient = LinearGradient(
-        colors: [.ravePrimary, .raveSecondary],
+        colors: [Color(hex: 0x6EC1E4), Color(hex: 0xFF3D8B)],
         startPoint: .topLeading,
         endPoint: .bottomTrailing
     )
 
-    static let raveAccentGradient = LinearGradient(
-        colors: [.raveAccent, .ravePrimary],
+    /// Двухцветный акцент для заголовков: голубой → cyan
+    static let raveTriGradient = LinearGradient(
+        colors: [Color(hex: 0x6EC1E4), Color(hex: 0x22D3EE)],
+        startPoint: .topLeading,
+        endPoint: .bottomTrailing
+    )
+
+    /// Glow градиент (свечение, hover)
+    static let raveGlowGradient = LinearGradient(
+        colors: [Color(hex: 0x6EC1E4), Color(hex: 0xFF3D8B)],
         startPoint: .leading,
         endPoint: .trailing
     )
+
+    /// Фоновый градиент — глубокий чёрный с микро-синим
+    static let raveBgGradient = LinearGradient(
+        colors: [Color(hex: 0x000000), Color(hex: 0x050810), Color(hex: 0x000000)],
+        startPoint: .top,
+        endPoint: .bottom
+    )
+}
+
+// MARK: - Hex
+extension Color {
+    init(hex: UInt32, alpha: Double = 1.0) {
+        let r = Double((hex >> 16) & 0xFF) / 255.0
+        let g = Double((hex >> 8) & 0xFF) / 255.0
+        let b = Double(hex & 0xFF) / 255.0
+        self.init(.sRGB, red: r, green: g, blue: b, opacity: alpha)
+    }
+}
+
+// MARK: - Glow Helpers
+extension Color {
+    var glowShadow: Color { self.opacity(0.5) }
+}
+
+extension View {
+    func neonGlow(color: Color = .ravePrimary, radius: CGFloat = 16, y: CGFloat = 6) -> some View {
+        self.shadow(color: color.glowShadow, radius: radius, x: 0, y: y)
+    }
+
+    func chatTextShadow() -> some View {
+        self.shadow(color: .black.opacity(0.9), radius: 2.5, x: 0, y: 1)
+    }
 }

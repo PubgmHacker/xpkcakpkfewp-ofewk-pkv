@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "../config/db.js";
 import { generateRoomCode } from "../utils/index.js";
 import { redis, redisKeys } from "../config/redis.js";
+import { ROOM_STATE_TTL } from "../config/index.js";
 
 // ─── Validation ───────────────────────────────────────
 
@@ -179,7 +180,7 @@ export async function roomRoutes(fastify: FastifyInstance) {
         redisKeys.roomState(room.id),
         JSON.stringify({
           roomID: room.id,
-          hostID: room.id,
+          hostID: room.hostID,
           isPlaying: false,
           currentMediaTime: 0,
           mediaItemID: room.mediaItemID,
@@ -187,7 +188,7 @@ export async function roomRoutes(fastify: FastifyInstance) {
           lastActivity: Date.now(),
         }),
         "EX",
-        3600
+        ROOM_STATE_TTL
       );
 
       // Track participant set
@@ -386,6 +387,152 @@ export async function roomRoutes(fastify: FastifyInstance) {
       });
 
       return reply.status(201).send({ success: true, message: "Report submitted" });
+    }
+  );
+
+  // ─── GET /api/rooms/public — топ-5 общедоступных комнат ──────────────
+  fastify.get(
+    "/public",
+    { preHandler: [fastify.authenticate] },
+    async (_request, reply) => {
+      const rooms = await prisma.room.findMany({
+        where: { isActive: true },
+        include: {
+          memberships: { select: { userID: true } },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 5,
+      });
+
+      const result = rooms.map((r) => ({
+        id: r.id,
+        name: r.name,
+        code: r.code,
+        hostID: r.hostID,
+        hostName: r.hostName,
+        isActive: r.isActive,
+        maxParticipants: r.maxParticipants,
+        participantCount: r.memberships.length,
+        mediaItem: r.mediaStreamURL
+          ? {
+              id: r.mediaItemID ?? "",
+              title: r.mediaTitle ?? "",
+              thumbnailURL: r.mediaThumbnailURL,
+              streamURL: r.mediaStreamURL,
+              duration: r.mediaDuration,
+              mediaType: r.mediaType ?? "video",
+              source: r.mediaSource ?? "url",
+            }
+          : null,
+        createdAt: r.createdAt,
+      }));
+
+      return reply.send(result);
+    }
+  );
+
+  // ─── GET /api/rooms/mine — комнаты пользователя ─────────────────────
+  fastify.get(
+    "/mine",
+    { preHandler: [fastify.authenticate] },
+    async (request, reply) => {
+      const user = request.user!;
+
+      const memberships = await prisma.membership.findMany({
+        where: { userID: user.id },
+        include: {
+          room: {
+            include: {
+              memberships: { select: { userID: true } },
+            },
+          },
+        },
+        orderBy: { joinedAt: "desc" },
+      });
+
+      const result = memberships.map((m) => {
+        const r = m.room;
+        return {
+          id: r.id,
+          name: r.name,
+          code: r.code,
+          hostID: r.hostID,
+          hostName: r.hostName,
+          isActive: r.isActive,
+          maxParticipants: r.maxParticipants,
+          participantCount: r.memberships.length,
+          mediaItem: r.mediaStreamURL
+            ? {
+                id: r.mediaItemID ?? "",
+                title: r.mediaTitle ?? "",
+                thumbnailURL: r.mediaThumbnailURL,
+                streamURL: r.mediaStreamURL,
+                duration: r.mediaDuration,
+                mediaType: r.mediaType ?? "video",
+                source: r.mediaSource ?? "url",
+              }
+            : null,
+          createdAt: r.createdAt,
+        };
+      });
+
+      return reply.send(result);
+    }
+  );
+
+  // ─── POST /api/rooms/:id/playback — обновить плейбек ───────────────
+  fastify.post(
+    "/:id/playback",
+    { preHandler: [fastify.authenticate] },
+    async (request, reply) => {
+      const { id: roomID } = request.params as { id: string };
+      const { time, isPlaying } = request.body as {
+        time: number;
+        isPlaying: boolean;
+      };
+
+      await prisma.playbackState.upsert({
+        where: { roomID },
+        create: { roomID, currentTime: time, isPlaying },
+        update: { currentTime: time, isPlaying },
+      });
+
+      return reply.send({ success: true });
+    }
+  );
+
+  // ─── GET /api/rooms/:id/playback — получить плейбек ────────────────
+  fastify.get(
+    "/:id/playback",
+    { preHandler: [fastify.authenticate] },
+    async (request, reply) => {
+      const { id: roomID } = request.params as { id: string };
+      const state = await prisma.playbackState.findUnique({
+        where: { roomID },
+      });
+      return reply.send(state ?? { currentTime: 0, isPlaying: false });
+    }
+  );
+
+  // ─── POST /api/rooms/:id/start — начать стрим ───────────────────────
+  fastify.post(
+    "/:id/start",
+    { preHandler: [fastify.authenticate] },
+    async (request, reply) => {
+      const user = request.user!;
+      const { id: roomID } = request.params as { id: string };
+
+      const room = await prisma.room.findUnique({ where: { id: roomID } });
+      if (!room) return reply.code(404).send({ error: "Room not found" });
+      if (room.hostID !== user.id)
+        return reply.code(403).send({ error: "Only host can start" });
+
+      await prisma.room.update({
+        where: { id: roomID },
+        data: { isActive: true },
+      });
+
+      return reply.send({ success: true });
     }
   );
 }

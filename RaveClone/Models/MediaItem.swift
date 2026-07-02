@@ -1,7 +1,7 @@
 import Foundation
 
 // MARK: - Media Item
-struct MediaItem: Codable, Identifiable, Sendable, Equatable {
+struct MediaItem: Codable, Identifiable, Sendable, Equatable, Hashable {
     let id: String
     let title: String
     let artist: String?           // For music
@@ -22,7 +22,6 @@ struct MediaItem: Codable, Identifiable, Sendable, Equatable {
     enum MediaSource: String, Codable, Sendable {
         case url = "url"              // Direct URL
         case youtube = "youtube"
-        case vimeo = "vimeo"
         case plex = "plex"
         case jellyfin = "jellyfin"
         case local = "local"

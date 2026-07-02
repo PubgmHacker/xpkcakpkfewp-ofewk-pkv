@@ -34,7 +34,7 @@ export function loadConfig(_log: FastifyBaseLogger): Config {
     nodeEnv: optional("NODE_ENV", "development"),
     databaseUrl: required("DATABASE_URL"),
     redisUrl: optional("REDIS_URL", "redis://localhost:6379"),
-    jwtSecret: optional("JWT_SECRET", "dev-secret-change-me"),
+    jwtSecret: optional("JWT_SECRET", "dev-secret-change-me"), // TODO: use required("JWT_SECRET") in production
     jwtExpiresIn: optional("JWT_EXPIRES_IN", "7d"),
     firebaseProjectId: optional("FIREBASE_PROJECT_ID", ""),
     firebasePrivateKey: optional("FIREBASE_PRIVATE_KEY", ""),

@@ -1,5 +1,4 @@
-import type { FastifyInstance } from "fastify";
-import type { IncomingMessage } from "http";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { WebSocket } from "ws";
 import { URL } from "url";
 import { WebSocketManager } from "./ws-manager.js";
@@ -26,12 +25,12 @@ export async function wsHandler(fastify: FastifyInstance): Promise<void> {
   });
 
   // WS endpoint: /ws
-  fastify.get("/ws", { websocket: true }, (socket: WebSocket, request: IncomingMessage) => {
+  fastify.get("/ws", { websocket: true }, (socket: WebSocket, request: FastifyRequest) => {
     handleConnection(socket, request, manager, fastify);
   });
 
   // WS endpoint with room param: /ws/room/:roomId
-  fastify.get("/ws/room/:roomId", { websocket: true }, (socket: WebSocket, request: IncomingMessage) => {
+  fastify.get("/ws/room/:roomId", { websocket: true }, (socket: WebSocket, request: FastifyRequest) => {
     handleConnection(socket, request, manager, fastify);
   });
 
@@ -45,7 +44,7 @@ export async function wsHandler(fastify: FastifyInstance): Promise<void> {
 
 async function handleConnection(
   ws: WebSocket,
-  request: IncomingMessage,
+  request: FastifyRequest,
   manager: WebSocketManager,
   fastify: FastifyInstance
 ): Promise<void> {
@@ -58,7 +57,7 @@ async function handleConnection(
   }
 
   // 2. Parse URL for optional auto-join room
-  const url = new URL(request.url || "", `ws://${request.headers.host}`);
+  const url = new URL(request.url, `ws://${request.headers.host}`);
   const autoRoomID = url.searchParams.get("roomId") || url.pathname.split("/room/")[1] || null;
 
   // 3. Register connection
@@ -110,10 +109,10 @@ async function handleConnection(
  * so we accept JWT via query parameter: ?token=xxx
  */
 async function authenticateWs(
-  request: IncomingMessage,
+  request: FastifyRequest,
   fastify: FastifyInstance
 ): Promise<AuthenticatedUser | null> {
-  const url = new URL(request.url || "", `ws://${request.headers.host}`);
+  const url = new URL(request.url, `ws://${request.headers.host}`);
   const token = url.searchParams.get("token");
 
   if (!token) {
@@ -122,7 +121,7 @@ async function authenticateWs(
     if (authHeader?.startsWith("Bearer ")) {
       try {
         const payload = fastify.jwt.verify<{ sub: string; username: string }>(authHeader.slice(7));
-        return { id: payload.sub, username: payload.username, email: "" };
+        return { id: payload.sub, username: payload.username, email: "", role: "USER" };
       } catch {
         return null;
       }
@@ -136,6 +135,7 @@ async function authenticateWs(
       id: payload.sub,
       username: payload.username,
       email: "",
+      role: "USER",
     };
   } catch {
     return null;

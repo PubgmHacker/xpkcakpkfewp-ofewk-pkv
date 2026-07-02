@@ -9,9 +9,17 @@ struct ChatMessage: Codable, Identifiable, Sendable {
     let text: String
     let timestamp: Date
     var isRead: Bool
+    var senderAvatarURL: String?
 
     var timeString: String {
         timestamp.formatted(.dateTime.hour().minute())
+    }
+
+    /// Первые инициалы имени для fallback-аватарки
+    var initials: String {
+        let parts = senderName.split(separator: " ")
+        let letters = parts.compactMap { $0.first }.prefix(2)
+        return letters.map { String($0).uppercased() }.joined()
     }
 
     static var preview: ChatMessage {
@@ -22,7 +30,8 @@ struct ChatMessage: Codable, Identifiable, Sendable {
             senderName: "Alex",
             text: "This is awesome! 🎬",
             timestamp: .now.addingTimeInterval(-120),
-            isRead: true
+            isRead: true,
+            senderAvatarURL: nil
         )
     }
 }

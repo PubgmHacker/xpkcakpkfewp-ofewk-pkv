@@ -27,7 +27,7 @@ extension View {
             .foregroundColor(.white)
             .padding(.horizontal, 24)
             .padding(.vertical, 12)
-            .background(.raveGradient)
+            .background(Color.ravePrimary)
             .clipShape(Capsule())
     }
 

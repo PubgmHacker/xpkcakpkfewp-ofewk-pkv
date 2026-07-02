@@ -89,7 +89,7 @@ export default function AnimatedGradientText({
         }}
       >
         <LinearGradient
-          colors={palette.colors}
+          colors={palette.colors as unknown as readonly [string, string, ...string[]]}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 0 }}
           style={{ width: textWidth * 2, height: fontSize * 1.5 }}

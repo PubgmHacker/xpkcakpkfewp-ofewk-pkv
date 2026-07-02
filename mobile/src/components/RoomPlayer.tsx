@@ -317,7 +317,7 @@ function buildWebViewSyncScript(
       };
       `}
 
-      console.log('[RaveClone] Sync script initialized — ' + (${isHost} ? 'HOST' : 'GUEST'));
+      console.log('[RaveClone] Sync script initialized — ' + ${isHost} ? 'HOST' : 'GUEST');
     })();
     true;
   `;

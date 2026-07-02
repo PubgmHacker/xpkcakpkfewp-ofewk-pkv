@@ -1,10 +1,41 @@
 import React, { useState } from "react";
 import {
   View, Text, TextInput, TouchableOpacity, ActivityIndicator,
-  StyleSheet, KeyboardAvoidingView, Platform, ScrollView, Alert, Image,
+  StyleSheet, KeyboardAvoidingView, Platform, ScrollView, Alert,
 } from "react-native";
 import { useAuthStore } from "../store/authStore";
 import type { AppUser } from "../store/authStore";
+
+import { API_URL } from "../config";
+
+// ─── Google OAuth через expo-auth-session ─────────────────────────────────────
+//
+// ⚠️ P0 НАСТРОЙКА OAUTH (перед релизом):
+//
+// 1. GOOGLE:
+//    • Google Cloud Console → APIs & Services → Credentials
+//    • Создать OAuth 2.0 Client ID (тип: Web application / iOS)
+//    • Authorized redirect URI: com.googleusercontent.apps.YOUR_ID:/oauth2redirect/google
+//    • Вставить ниже GOOGLE_CLIENT_ID
+//
+// 2. VK:
+//    • https://vk.com/apps → Создать приложение (тип: Веб-сайт)
+//    • Получить VK_CLIENT_ID
+//    • Redirect URI: https://oauth.vk.com/blank.html
+//
+// 3. APPLE:
+//    • Apple Developer → Certificates, Identifiers & Profiles
+//    • Sign In with Apple: Enable для App ID
+//    • Создать Service ID (для Sign In with Apple)
+//    • Team ID в eas.json → submit.production.ios.appleTeamId
+//
+import { makeRedirectUri, useAuthRequest } from "expo-auth-session";
+
+// ПЕРЕД ПРОДОМ: замените на ваш Google OAuth Client ID (Google Cloud Console)
+const GOOGLE_CLIENT_ID = "YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com";
+const GOOGLE_DISCOVERY = { authorizationEndpoint: "https://accounts.google.com/o/oauth2/v2/auth", tokenEndpoint: "https://oauth2.googleapis.com/token", revocationEndpoint: "https://oauth2.googleapis.com/revoke" };
+
+const GOOGLE_REDIRECT_URI = makeRedirectUri({ scheme: "raveclone", native: "com.googleusercontent.apps.YOUR_GOOGLE_CLIENT_ID:/oauth2redirect/google" });
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  AppAuthScreen — Глобальный экран входа в RaveClone (Уровень 1)
@@ -18,11 +49,9 @@ import type { AppUser } from "../store/authStore";
 //
 //  После успеха бэкенд возвращает: { token, user: { id, username, avatar, isGuest } }
 //  Сохраняем через authStore.setAuth() → AppNavigator пропускает дальше.
-//
-//  ⚠️ DRM-авторизация (Кинопоиск/Netflix) — НЕ здесь. Она в DrmSessionManager.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { API_URL } from "../config";
+// ─── Lazy imports для платформоспецифичных модулей ─────────────────────────────
 
 type AuthMethod = "google" | "apple" | "vk" | "email" | "guest";
 
@@ -35,6 +64,24 @@ export default function AppAuthScreen() {
   const [username, setUsername] = useState("");
   const [loading, setLoading] = useState<AuthMethod | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // ─── Google OAuth (хук на верхнем уровне) ─────────────────────────────────
+  const [googleRequest, googleResponse, googlePromptAsync] = useAuthRequest(
+    {
+      clientId: GOOGLE_CLIENT_ID,
+      redirectUri: GOOGLE_REDIRECT_URI,
+      scopes: ["openid", "profile", "email"],
+      usePKCE: true,
+    },
+    GOOGLE_DISCOVERY,
+  );
+
+  // Обработка ответа Google OAuth
+  React.useEffect(() => {
+    if (googleResponse?.type === "success" && googleResponse.params?.id_token) {
+      exchange("google", "google", { idToken: googleResponse.params.id_token });
+    }
+  }, [googleResponse]);
 
   // ─── Универсальный обмен на JWT ──────────────────────────────────────────
   const exchange = async (
@@ -75,32 +122,102 @@ export default function AppAuthScreen() {
     }
   };
 
-  // ─── Социальные входы ────────────────────────────────────────────────────
-  const signInGoogle = () => {
-    // ПРОД: expo-auth-session → Google.useIdTokenAuthRequest()
-    Alert.alert(
-      "Google Sign-In",
-      "В продакшене используется expo-auth-session для получения id_token.",
-      [{ text: "OK", onPress: () => exchange("google", "google", { idToken: "demo_google_token" }) }]
-    );
+  // ═════════════════════════════════════════════════════════════════════════
+  //  1. Google Sign-In (реальный через expo-auth-session)
+  // ═════════════════════════════════════════════════════════════════════════
+
+  const signInGoogle = async () => {
+    setLoading("google");
+    setError(null);
+    try {
+      const result = await googlePromptAsync();
+      if (result.type === "error") {
+        setError("Google Sign-In отменён или не настроен");
+        setLoading(null);
+      }
+      // успех обработается в useEffect выше
+    } catch (e: any) {
+      console.warn("[Google Auth] Failed:", e.message);
+      Alert.alert(
+        "Google Sign-In",
+        "Для продакшена замените GOOGLE_CLIENT_ID в AppAuthScreen.tsx на ваш из Google Cloud Console",
+        [{ text: "OK", onPress: () => exchange("google", "google", { idToken: "demo_google_token" }) }],
+      );
+      setLoading(null);
+    }
   };
 
-  const signInApple = () => {
-    // ПРОД: expo-apple-authentication (только iOS, требует Apple Developer)
-    Alert.alert(
-      "Apple Sign-In",
-      "Требует Apple Developer Account. Контракт: identityToken → /api/auth/apple",
-      [{ text: "OK", onPress: () => exchange("apple", "apple", { idToken: "demo_apple_token" }) }]
-    );
+  // ═════════════════════════════════════════════════════════════════════════
+  //  2. Apple Sign-In (реальный через expo-apple-authentication, iOS only)
+  // ═════════════════════════════════════════════════════════════════════════
+
+  const signInApple = async () => {
+    if (Platform.OS !== "ios") {
+      setError("Apple Sign-In доступен только на iOS");
+      return;
+    }
+
+    setLoading("apple");
+    setError(null);
+
+    try {
+      const AppleAuth = await import("expo-apple-authentication");
+
+      const credential = await AppleAuth.signInAsync({
+        requestedScopes: [
+          AppleAuth.AppleAuthenticationScope.FULL_NAME,
+          AppleAuth.AppleAuthenticationScope.EMAIL,
+        ],
+      });
+
+      if (credential.identityToken) {
+        await exchange("apple", "apple", { idToken: credential.identityToken });
+      } else {
+        setError("Не удалось получить токен Apple");
+      }
+    } catch (e: any) {
+      if (e.code === "ERR_REQUEST_CANCELED") {
+        // Пользователь отменил — это не ошибка
+      } else {
+        console.warn("[Apple Auth] Failed:", e.message);
+        setError("Ошибка Apple Sign-In. Проверьте Apple Developer Account.");
+      }
+    } finally {
+      setLoading(null);
+    }
   };
 
-  const signInVK = () => {
-    // ПРОД: WebView OAuth → https://oauth.vk.com/authorize → access_token
-    Alert.alert(
-      "VK ID",
-      "OAuth 2.0 через WebView. Контракт: access_token → /api/auth/vk",
-      [{ text: "OK", onPress: () => exchange("vk", "vk", { accessToken: "demo_vk_token" }) }]
-    );
+  // ═════════════════════════════════════════════════════════════════════════
+  //  3. VK ID (OAuth 2.0 через WebView)
+  // ═════════════════════════════════════════════════════════════════════════
+
+  const signInVK = async () => {
+    setLoading("vk");
+    setError(null);
+
+    try {
+      // VK использует OAuth 2.0 Implicit Flow
+      // ПЕРЕД ПРОДОМ: замените VK_CLIENT_ID на ваш из vk.com/apps
+      const VK_CLIENT_ID = "YOUR_VK_CLIENT_ID";
+      const redirectUri = "https://oauth.vk.com/blank.html";
+      const scope = "email,photos";
+
+      // Демонстрация контракта — в проде нужен WebView для OAuth
+      Alert.alert(
+        "VK ID",
+        "Для продакшена замените VK_CLIENT_ID и используйте WebView для OAuth-авторизации.",
+        [
+          {
+            text: "OK",
+            onPress: () => exchange("vk", "vk", { accessToken: "demo_vk_token" }),
+          },
+        ],
+      );
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setLoading(null);
+    }
   };
 
   // ─── Email/Password ──────────────────────────────────────────────────────
@@ -200,7 +317,9 @@ export default function AppAuthScreen() {
         {/* ─── Социальные кнопки ─── */}
         <View style={styles.socialRow}>
           <SocialCircle icon="🔵" label="Google" onPress={signInGoogle} loading={loading === "google"} />
-          <SocialCircle icon="" label="Apple" onPress={signInApple} loading={loading === "apple"} dark />
+          {Platform.OS === "ios" && (
+            <SocialCircle icon="" label="Apple" onPress={signInApple} loading={loading === "apple"} dark />
+          )}
           <SocialCircle icon="🟦" label="VK" onPress={signInVK} loading={loading === "vk"} />
         </View>
 

@@ -3,6 +3,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { UserRole } from "./roles";
+export type { UserRole } from "./roles";
 
 export interface User {
   id: string;

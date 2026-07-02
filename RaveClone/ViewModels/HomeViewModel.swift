@@ -1,6 +1,7 @@
 import Foundation
 
 // MARK: - Home View Model
+@MainActor
 @Observable
 final class HomeViewModel {
 
@@ -15,19 +16,47 @@ final class HomeViewModel {
     var selectedRoom: Room?
 
     var filteredRooms: [Room] {
+        // Сначала убираем заблокированных хостов (Блок 1 — мгновенная локальная фильтрация).
+        let notBlocked = blockManager.filterRooms(rooms)
+
         if searchText.isEmpty {
-            return rooms
+            return notBlocked
         }
-        return rooms.filter {
+        return notBlocked.filter {
             $0.name.localizedCaseInsensitiveContains(searchText) ||
             $0.hostName.localizedCaseInsensitiveContains(searchText)
         }
+    }
+
+    /// Суммарное количество участников во всех активных комнатах —
+    /// метрика для шапки Discovery Dashboard («123 watching now»).
+    var totalActiveParticipants: Int {
+        rooms.filter { $0.isActive }.reduce(0) { $0 + $1.participantCount }
+    }
+
+    /// Топ-5 комнат по количеству участников (тренды).
+    var trendingRooms: [Room] {
+        blockManager.filterRooms(rooms)
+            .filter { $0.participantCount > 0 }
+            .sorted { $0.participantCount > $1.participantCount }
+            .prefix(5)
+            .map { $0 }
+    }
+
+    /// Активные комнаты, отсортированные по популярности.
+    var activeRooms: [Room] {
+        blockManager.filterRooms(rooms)
+            .filter { $0.isActive }
+            .sorted { $0.participantCount > $1.participantCount }
     }
 
     // MARK: - Services
 
     private let roomService: RoomServiceProtocol
     private let authService: AuthServiceProtocol
+
+    /// Локальный менеджер блокировок (Блок 1 — UGC).
+    @MainActor let blockManager = UserBlockManager()
 
     // MARK: - Init
 
@@ -70,5 +99,20 @@ final class HomeViewModel {
 
     func refresh() async {
         await loadRooms()
+    }
+
+    // MARK: - UGC Moderation (Блок 1)
+
+    /// Блокирует хоста комнаты и мгновенно убирает его комнаты из списка.
+    func blockRoom(_ room: Room) {
+        blockManager.blockUser(room.hostID)
+        // filteredRooms пересчитается автоматически (зависит от blockManager.blockedUserIds).
+        // Принудительно триггерим обновление @Observable через мутацию массива.
+        rooms = rooms.filter { $0.hostID != room.hostID }
+    }
+
+    /// Разблокирует пользователя.
+    func unblockUser(_ userId: String) {
+        blockManager.unblockUser(userId)
     }
 }

@@ -1,4 +1,4 @@
-type Logger = { info(msg: string, ...args: any[]): void; warn(msg: string, ...args: any[]): void; error(msg: string, ...args: any[]): void };
+import type { FastifyBaseLogger } from "fastify";
 import { YouTubeService } from "./youtube.js";
 import { extractVKVideo, isVKVideoURL } from "./extractors/vk.js";
 import { extractRuTube, isRuTubeURL } from "./extractors/rutube.js";
@@ -132,7 +132,7 @@ export class MediaExtractor {
   private youtube: YouTubeService;
 
   constructor(
-    private log: Logger,
+    private log: FastifyBaseLogger,
     private ytdlpPath: string
   ) {
     this.youtube = new YouTubeService(log, ytdlpPath);

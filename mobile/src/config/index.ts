@@ -52,6 +52,7 @@ export const ENDPOINTS = {
   mediaExtract: `${API_URL}/media/extract`,
   mediaSources: `${API_URL}/media/sources`,
   mediaProbe: `${API_URL}/media/probe`,
+  mediaSearch: `${API_URL}/media/search`,
 } as const;
 
 /** Сформировать WebSocket URL для конкретной комнаты. */

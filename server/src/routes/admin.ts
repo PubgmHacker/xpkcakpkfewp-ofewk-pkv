@@ -27,22 +27,22 @@ export async function adminRoutes(fastify: FastifyInstance) {
 
     const user = request.user;
     if (!user) {
-      return reply.status(401).send({ error: "Не авторизован" });
+      return reply.status(401).send({ error: "Unauthorized" });
     }
 
-    // Загружаем актуальную роль из БД (не доверяем только JWT)
+    // Load actual role from DB (don't trust JWT alone)
     const dbUser = await prisma.user.findUnique({
       where: { id: user.id },
       select: { role: true, bannedUntil: true },
     });
 
     if (!dbUser || dbUser.role !== "ADMIN") {
-      return reply.status(403).send({ error: "Требуются права администратора" });
+      return reply.status(403).send({ error: "Admin access required" });
     }
 
-    // Проверка бана
+    // Check ban
     if (dbUser.bannedUntil && dbUser.bannedUntil > new Date()) {
-      return reply.status(403).send({ error: "Аккаунт администратора заблокирован" });
+      return reply.status(403).send({ error: "Admin account is banned" });
     }
   });
 
@@ -56,10 +56,10 @@ export async function adminRoutes(fastify: FastifyInstance) {
 
     const room = await prisma.room.findUnique({ where: { id: roomID } });
     if (!room) {
-      return reply.status(404).send({ error: "Комната не найдена" });
+      return reply.status(404).send({ error: "Room not found" });
     }
 
-    // Деактивируем + уведомляем участников через WS
+    // Deactivate + notify participants via WS
     await prisma.room.update({
       where: { id: roomID },
       data: { isActive: false },
@@ -76,7 +76,7 @@ export async function adminRoutes(fastify: FastifyInstance) {
         type: "room_closed",
         roomID,
         reason: "admin_action",
-        message: "Комната закрыта администратором",
+        message: "Room closed by administrator",
         timestamp: Date.now(),
       });
     }
@@ -87,7 +87,7 @@ export async function adminRoutes(fastify: FastifyInstance) {
       roomName: room.name,
     }, "[ADMIN] Room deleted");
 
-    return reply.send({ success: true, message: "Комната удалена" });
+    return reply.send({ success: true, message: "Room deleted" });
   });
 
   // ─── POST /api/admin/rooms/:id/end-stream — завершить стрим ─────────────
@@ -96,10 +96,10 @@ export async function adminRoutes(fastify: FastifyInstance) {
 
     const room = await prisma.room.findUnique({ where: { id: roomID } });
     if (!room) {
-      return reply.status(404).send({ error: "Комната не найдена" });
+      return reply.status(404).send({ error: "Room not found" });
     }
 
-    // Сбрасываем медиа
+    // Reset media
     await prisma.room.update({
       where: { id: roomID },
       data: {
@@ -120,7 +120,7 @@ export async function adminRoutes(fastify: FastifyInstance) {
         senderID: "system",
         senderName: "Администратор",
         senderRole: "admin",
-        text: "🎬 Стрим завершён администратором",
+        text: "🎬 Stream ended by administrator",
         timestamp: new Date().toISOString(),
         isSystem: true,
         systemType: "info",
@@ -137,7 +137,7 @@ export async function adminRoutes(fastify: FastifyInstance) {
       });
     }
 
-    return reply.send({ success: true, message: "Стрим завершён" });
+    return reply.send({ success: true, message: "Stream ended" });
   });
 
   // ─── POST /api/admin/rooms/:id/kick/:userId — кикнуть из любой комнаты ──
@@ -166,7 +166,7 @@ export async function adminRoutes(fastify: FastifyInstance) {
         senderID: "system",
         senderName: "Система",
         senderRole: "admin",
-        text: "🔨 Пользователь исключён администратором",
+        text: "🔨 User removed by administrator",
         timestamp: new Date().toISOString(),
         isSystem: true,
         systemType: "kick",
@@ -176,7 +176,7 @@ export async function adminRoutes(fastify: FastifyInstance) {
 
     request.log.info({ adminID, roomID, kickedUserID: userId }, "[ADMIN] User kicked");
 
-    return reply.send({ success: true, message: "Пользователь исключён" });
+    return reply.send({ success: true, message: "User kicked" });
   });
 
   // ═════════════════════════════════════════════════════════════════════════
@@ -227,10 +227,10 @@ export async function adminRoutes(fastify: FastifyInstance) {
     // Нельзя забанить другого админа
     const target = await prisma.user.findUnique({ where: { id: userID }, select: { role: true } });
     if (!target) {
-      return reply.status(404).send({ error: "Пользователь не найден" });
+      return reply.status(404).send({ error: "User not found" });
     }
     if (target.role === "ADMIN") {
-      return reply.status(403).send({ error: "Нельзя забанить администратора" });
+      return reply.status(403).send({ error: "Cannot ban an administrator" });
     }
 
     const bannedUntil = new Date(Date.now() + body.durationHours * 3600 * 1000);
@@ -243,7 +243,7 @@ export async function adminRoutes(fastify: FastifyInstance) {
     // Отключаем от всех активных WS-сессий
     const wsManager = (fastify as any).wsManager;
     if (wsManager) {
-      wsManager.disconnectUserEverywhere(userID, `Забанен: ${body.reason}`);
+      wsManager.disconnectUserEverywhere(userID, `Banned: ${body.reason}`);
     }
 
     request.log.info({
@@ -255,7 +255,7 @@ export async function adminRoutes(fastify: FastifyInstance) {
 
     return reply.send({
       success: true,
-      message: `Пользователь забанен на ${body.durationHours}ч`,
+      message: `User banned for ${body.durationHours}h`,
       bannedUntil,
     });
   });
@@ -269,7 +269,7 @@ export async function adminRoutes(fastify: FastifyInstance) {
       data: { bannedUntil: null, bannedReason: null, warningsCount: 0 },
     });
 
-    return reply.send({ success: true, message: "Пользователь разбанен" });
+    return reply.send({ success: true, message: "User unbanned" });
   });
 
   // ─── POST /api/admin/users/:id/role — изменить роль ────────────────────
@@ -290,7 +290,7 @@ export async function adminRoutes(fastify: FastifyInstance) {
       newRole: role,
     }, "[ADMIN] Role changed");
 
-    return reply.send({ success: true, message: `Роль изменена на ${role}` });
+    return reply.send({ success: true, message: `Role changed to ${role}` });
   });
 
   // ═════════════════════════════════════════════════════════════════════════

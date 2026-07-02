@@ -1,15 +1,11 @@
-type Logger = { info(msg: string, ...args: any[]): void; warn(msg: string, ...args: any[]): void; error(msg: string, ...args: any[]): void };
+import type { FastifyBaseLogger } from "fastify";
 import { execFile } from "child_process";
 import { promisify } from "util";
 
 const exec = promisify(execFile);
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  VK Видео экстрактор
-//
-//  VK Видео (vk.ru/video, vk.com/video) встраивает видео через oEmbed + JSON-LD.
-//  yt-dlp поддерживает VK Видео с v3.x — извлекает .mp4 (прогрессивный) или
-//  .mpd (DASH). Для expo-av нам нужен прогрессивный .mp4.
+//  VK extractor — yt-dlp based
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface VKVideoInfo {
@@ -17,13 +13,13 @@ export interface VKVideoInfo {
   title: string;
   duration: number;
   thumbnailURL?: string;
-  streamURL: string;       // прямой .mp4
-  quality: string;         // "720p" / "1080p"
+  streamURL: string;
+  quality: string;
   author?: string;
 }
 
-export async function extractVKVideo(url: string, ytdlpPath: string, log: Logger): Promise<VKVideoInfo> {
-  log.info({ url }, "[VK] Извлечение видео");
+export async function extractVKVideo(url: string, ytdlpPath: string, log: FastifyBaseLogger): Promise<VKVideoInfo> {
+  log.info({ url }, "[VK] Extracting video");
 
   const { stdout } = await exec(ytdlpPath, [
     "--dump-json",

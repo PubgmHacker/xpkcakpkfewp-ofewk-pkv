@@ -326,6 +326,7 @@ struct CreateRoomView: View {
             mediaItem: finalMediaItem,
             isActive: true,
             maxParticipants: maxParticipants,
+            hostIsPremium: false,
             createdAt: Date()
         )
 

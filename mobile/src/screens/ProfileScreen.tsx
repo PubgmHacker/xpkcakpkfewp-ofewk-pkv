@@ -1,14 +1,65 @@
-import React from "react";
-import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
+import React, { useEffect, useState, useCallback } from "react";
+import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useAuthStore } from "../store/authStore";
+import { useAuthStore, authHeaders } from "../store/authStore";
+import { API_URL } from "../config";
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  ProfileScreen — профиль текущего пользователя RaveClone
+//  Загружает реальные данные из /api/users/me/stats
 // ─────────────────────────────────────────────────────────────────────────────
+
+interface UserStats {
+  friendsCount: number;
+  roomsJoined: number;
+  totalHoursWatched: number;
+  sessionsCount: number;
+}
 
 export default function ProfileScreen() {
   const { user, signOut } = useAuthStore();
+  const [stats, setStats] = useState<UserStats | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const fetchStats = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_URL}/users/me/stats`, {
+        headers: { ...authHeaders() },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setStats(data);
+      }
+    } catch (e) {
+      console.warn("[Profile] Failed to fetch stats:", e);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchStats();
+  }, [fetchStats]);
+
+  const handleSignOut = async () => {
+    Alert.alert("Выход", "Вы уверены, что хотите выйти?", [
+      { text: "Отмена", style: "cancel" },
+      {
+        text: "Выйти",
+        style: "destructive",
+        onPress: async () => {
+          // Notify server about signout
+          try {
+            await fetch(`${API_URL}/auth/signout`, {
+              method: "POST",
+              headers: { ...authHeaders(), "Content-Type": "application/json" },
+            });
+          } catch {}
+          await signOut();
+        },
+      },
+    ]);
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -31,9 +82,15 @@ export default function ProfileScreen() {
       </View>
 
       <View style={styles.section}>
-        <RowItem icon="🎬" label="Просмотрено комнат" value="0" />
-        <RowItem icon="⏱️" label="Время в синхроне" value="0 мин" />
-        <RowItem icon="👥" label="Друзья" value="0" />
+        {loading ? (
+          <ActivityIndicator color="#7346EB" style={{ padding: 20 }} />
+        ) : (
+          <>
+            <RowItem icon="🎬" label="Просмотрено комнат" value={String(stats?.roomsJoined ?? 0)} />
+            <RowItem icon="⏱️" label="Часов в синхроне" value={String(stats?.totalHoursWatched ?? 0)} />
+            <RowItem icon="👥" label="Друзья" value={String(stats?.friendsCount ?? 0)} />
+          </>
+        )}
       </View>
 
       <View style={styles.section}>
@@ -42,7 +99,7 @@ export default function ProfileScreen() {
         <RowItem icon="🔒" label="Конфиденциальность" value="" />
       </View>
 
-      <TouchableOpacity style={styles.signOutBtn} onPress={signOut}>
+      <TouchableOpacity style={styles.signOutBtn} onPress={handleSignOut}>
         <Text style={styles.signOutText}>Выйти из аккаунта</Text>
       </TouchableOpacity>
 

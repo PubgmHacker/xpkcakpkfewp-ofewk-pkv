@@ -1,16 +1,7 @@
-type Logger = { info(msg: string, ...args: any[]): void; warn(msg: string, ...args: any[]): void; error(msg: string, ...args: any[]): void };
+import type { FastifyBaseLogger } from "fastify";
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Web экстрактор (открытый интернет)
-//
-//  Обрабатывает 2 сценария:
-//    1. Прямая ссылка на видеофайл (.mp4, .m3u8, .webm, .mov)
-//       → передаётся как есть, бэкенд лишь валидирует HEAD-запросом.
-//    2. HTML-страница с встроенным <video> тегом
-//       → парсим HTML, извлекаем src из <video><source>.
-//
-//  Внимание: это НЕ работает с DRM-сайтами (Netflix, Кинопоиск) — там видео
-//  зашифровано и требует сессионных ключей. Для них используется WebView-sync.
+//  Web extractor (direct URLs + HTML video tag parsing)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface WebVideoInfo {
@@ -33,9 +24,9 @@ export function isDirectMediaURL(url: string): boolean {
 /** Извлечь прямой поток из URL. */
 export async function extractWebMedia(
   url: string,
-  log: Logger
+  log: FastifyBaseLogger
 ): Promise<WebVideoInfo> {
-  log.info({ url }, "[Web] Извлечение медиа");
+  log.info({ url }, "[Web] Extracting media");
 
   // Сценарий 1: прямая ссылка на файл
   if (isDirectMediaURL(url)) {
@@ -69,12 +60,12 @@ export async function extractWebMedia(
 
 // ─── Вспомогательные функции ───────────────────────────────────────────────
 
-async function validateURL(url: string, log: Logger): Promise<boolean> {
+async function validateURL(url: string, log: FastifyBaseLogger): Promise<boolean> {
   try {
     const res = await fetch(url, { method: "HEAD", signal: AbortSignal.timeout(10_000) });
     return res.ok;
   } catch (e: any) {
-    log.warn({ url, err: e.message }, "[Web] HEAD-проверка не удалась, пробуем GET");
+    log.warn({ url, err: e.message }, "[Web] HEAD check failed, trying GET");
     // Некоторые серверы не поддерживают HEAD — пробуем GET с range
     try {
       const res = await fetch(url, {
@@ -88,7 +79,7 @@ async function validateURL(url: string, log: Logger): Promise<boolean> {
   }
 }
 
-async function fetchHTML(url: string, log: Logger): Promise<string> {
+async function fetchHTML(url: string, log: FastifyBaseLogger): Promise<string> {
   const res = await fetch(url, {
     headers: {
       "User-Agent":

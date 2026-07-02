@@ -3,6 +3,7 @@ import type { FastifyBaseLogger } from "fastify";
 import type {
   SyncMessage,
   WebRTCSignalingMessage,
+  ScreenShareMessage,
   ChatPayload,
   InboundMessage,
   AuthenticatedUser,
@@ -10,8 +11,8 @@ import type {
 } from "../types/index.js";
 import { prisma } from "../config/db.js";
 import { redis, redisKeys } from "../config/redis.js";
-import { HEARTBEAT_TIMEOUT_MS, MAX_ROOM_PARTICIPANTS } from "../config/index.js";
-import { now, safeJSONParse } from "../utils/index.js";
+import { HEARTBEAT_TIMEOUT_MS, MAX_ROOM_PARTICIPANTS, ROOM_STATE_TTL } from "../config/index.js";
+import { safeJSONParse } from "../utils/index.js";
 
 // ─── Connection Context ──────────────────────────────
 
@@ -51,6 +52,12 @@ export class WebSocketManager {
   private connections = new Map<string, ClientConnection>();  // ws → client
   private rooms = new Map<string, RoomRuntimeState>();         // roomID → state
   private userToConnection = new Map<string, Set<string>>();  // userID → set of ws IDs
+
+  // Chat rate limiting: max 5 messages per 10 seconds per user
+  private chatRateLimits = new Map<string, { count: number; windowStart: number }>();
+  private static readonly CHAT_MAX_LENGTH = 500;
+  private static readonly CHAT_MAX_PER_WINDOW = 5;
+  private static readonly CHAT_WINDOW_MS = 10_000;
 
   constructor(private log: FastifyBaseLogger) {
     // Periodic heartbeat check — disconnect dead connections
@@ -161,7 +168,7 @@ export class WebSocketManager {
 
     // Persist participant in Redis
     await redis.sadd(redisKeys.roomParticipants(roomID), conn.user.id);
-    await redis.expire(redisKeys.roomParticipants(roomID), 3600);
+    await redis.expire(redisKeys.roomParticipants(roomID), ROOM_STATE_TTL);
 
     // Send current state to the joining client
     this.send(conn.ws, {
@@ -321,6 +328,13 @@ export class WebSocketManager {
           this.handleWebRTC(connID, msg as WebRTCSignalingMessage);
           break;
 
+        case "screen_share_start":
+        case "screen_share_stop":
+        case "screen_share_subscribe":
+        case "screen_share_request_offer":
+          this.handleScreenShare(connID, msg as ScreenShareMessage);
+          break;
+
         case "ping":
           this.send(conn.ws, { command: "pong", timestamp: Date.now() });
           break;
@@ -418,7 +432,7 @@ export class WebSocketManager {
             lastActivity: room.lastActivity,
           }),
           "EX",
-          3600
+          ROOM_STATE_TTL
         ).catch(() => {});
 
         this.log.debug(
@@ -503,6 +517,92 @@ export class WebSocketManager {
     }
   }
 
+  // ─── Screen Share Signaling ────────────────────────
+  /**
+   * Handle Screen Share coordination messages.
+   *
+   * Flow:
+   * 1. Host sends `screen_share_start` → server tracks host as streamer
+   * 2. Guest sends `screen_share_subscribe` → server notifies host
+   * 3. Host sends `webrtc_offer` to each guest (P2P mesh for now)
+   * 4. Host sends `screen_share_stop` → server notifies all guests
+   *
+   * This is a lightweight relay model — actual WebRTC negotiation
+   * (SDP/ICE) goes through the existing handleWebRTC path.
+   */
+  private handleScreenShare(connID: string, msg: ScreenShareMessage): void {
+    const conn = this.connections.get(connID);
+    const room = this.rooms.get(msg.roomID);
+    if (!conn || !room) return;
+
+    if (!room.participants.has(connID)) return;
+
+    this.log.info(
+      { type: msg.type, from: conn.user.id, roomID: msg.roomID },
+      "[WS] Screen share"
+    );
+
+    switch (msg.type) {
+      case "screen_share_start": {
+        // Host announces streaming. Mark room as having an active stream.
+        (room as RoomRuntimeState & { streamingHostID?: string }).streamingHostID =
+          conn.user.id;
+
+        // Notify all guests that a stream is available
+        this.broadcastToRoom(msg.roomID, {
+          ...msg,
+          hostID: conn.user.id,
+        }, connID);
+        break;
+      }
+
+      case "screen_share_stop": {
+        // Host stopped streaming
+        (room as RoomRuntimeState & { streamingHostID?: string }).streamingHostID =
+          undefined;
+
+        // Notify all guests
+        this.broadcastToRoom(msg.roomID, {
+          ...msg,
+          hostID: conn.user.id,
+        }, connID);
+        break;
+      }
+
+      case "screen_share_subscribe": {
+        // Guest wants to receive the stream → forward request to host
+        const hostID =
+          msg.hostID ?? room.hostID;
+        const hostConn = this.findConnectionByUser(msg.roomID, hostID);
+        if (hostConn) {
+          this.send(hostConn.ws, {
+            ...msg,
+            userID: conn.user.id,
+          });
+        } else {
+          this.log.warn(
+            { hostID, roomID: msg.roomID },
+            "[WS] Screen share host not found"
+          );
+        }
+        break;
+      }
+
+      case "screen_share_request_offer": {
+        // Guest asks host to initiate WebRTC offer
+        const hostConn = this.findConnectionByUser(msg.roomID, room.hostID);
+        if (hostConn) {
+          this.send(hostConn.ws, {
+            ...msg,
+            userID: conn.user.id,
+            targetID: conn.user.id,
+          });
+        }
+        break;
+      }
+    }
+  }
+
   // ─── Chat Handler ──────────────────────────────────
   /**
    * Relay text messages to all room participants.
@@ -515,13 +615,26 @@ export class WebSocketManager {
 
     if (!room.participants.has(connID)) return;
 
+    // Trim and validate message length
+    const text = (msg.text || "").trim().slice(0, WebSocketManager.CHAT_MAX_LENGTH);
+    if (!text) return;
+
+    // Rate limit check
+    if (!this.checkChatRateLimit(conn.user.id)) {
+      conn.ws.send(JSON.stringify({
+        type: "error",
+        message: "You're sending messages too fast. Please wait a moment.",
+      }));
+      return;
+    }
+
     // Persist to DB (fire-and-forget)
     prisma.chatMessage
       .create({
         data: {
           roomID: msg.roomID,
           senderID: msg.senderID,
-          text: msg.text,
+          text,
         },
       })
       .catch((err) => this.log.error(err, "Failed to persist chat message"));
@@ -529,9 +642,23 @@ export class WebSocketManager {
     // Broadcast to all in room (including sender)
     this.broadcastToRoom(msg.roomID, {
       ...msg,
+      text,
       id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       timestamp: new Date().toISOString(),
     });
+  }
+
+  private checkChatRateLimit(userID: string): boolean {
+    const now = Date.now();
+    let entry = this.chatRateLimits.get(userID);
+
+    if (!entry || now - entry.windowStart > WebSocketManager.CHAT_WINDOW_MS) {
+      entry = { count: 0, windowStart: now };
+      this.chatRateLimits.set(userID, entry);
+    }
+
+    entry.count++;
+    return entry.count <= WebSocketManager.CHAT_MAX_PER_WINDOW;
   }
 
   // ─── Heartbeat Monitoring ───────────────────────────

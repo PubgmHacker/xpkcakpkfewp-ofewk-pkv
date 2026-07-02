@@ -2,8 +2,8 @@
   "expo": {
     "name": "RaveClone",
     "slug": "raveclone",
-    "version": "1.0.0",
-    "orientation": "portrait",
+    "version": "1.1.0",
+    "orientation": "default",
     "userInterfaceStyle": "dark",
     "scheme": "raveclone",
     "splash": {
@@ -13,20 +13,39 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.raveclone.app",
+      "buildNumber": "2",
       "infoPlist": {
         "NSMicrophoneUsageDescription": "RaveClone использует микрофон для голосового чата во время совместного просмотра.",
         "NSLocalNetworkUsageDescription": "RaveClone нужен доступ к локальной сети для подключения к серверу.",
-        "NSCameraUsageDescription": "RaveClone использует камеру для видеозвонков с друзьями."
+        "NSCameraUsageDescription": "RaveClone использует камеру для видеозвонков с друзьями.",
+        "NSPhotoLibraryUsageDescription": "RaveClone использует фото для установки аватара.",
+        "RTCBackgroundModePolicy": "keep-alive",
+        "UIBackgroundModes": ["audio", "voip"]
       }
     },
     "android": {
       "package": "com.raveclone.app",
-      "permissions": ["android.permission.RECORD_AUDIO", "android.permission.INTERNET"]
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.INTERNET",
+        "android.permission.CAMERA",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.BLUETOOTH"
+      ]
     },
+    "plugins": [
+      [
+        "expo-notifications",
+        {
+          "color": "#7346EB"
+        }
+      ]
+    ],
     "extra": {
       "eas": {
-        "projectId": "your-eas-project-id"
+        "projectId": "361a5613-efc1-4555-a874-c7284576fc73"
       }
-    }
+    },
+    "owner": "rageultimate"
   }
 }

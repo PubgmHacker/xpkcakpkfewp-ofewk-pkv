@@ -46,4 +46,42 @@ final class RoomService: RoomServiceProtocol {
     func deleteRoom(roomID: String) async throws {
         try await api.requestNoBody("rooms/\(roomID)", method: .delete)
     }
+
+    // MARK: - Public Rooms (топ-5)
+
+    func fetchPublicRooms() async throws -> [Room] {
+        try await api.request("rooms/public")
+    }
+
+    // MARK: - My Rooms
+
+    func fetchMyRooms() async throws -> [Room] {
+        try await api.request("rooms/mine")
+    }
+
+    // MARK: - Start Stream (хост)
+
+    func startRoom(roomID: String) async throws {
+        struct Body: Encodable {}
+        try await api.requestNoBody("rooms/\(roomID)/start", method: .post, body: Body())
+    }
+
+    // MARK: - Playback State
+
+    func updatePlayback(roomID: String, time: TimeInterval, isPlaying: Bool) async throws {
+        struct Body: Encodable {
+            let time: TimeInterval
+            let isPlaying: Bool
+        }
+        try await api.requestNoBody("rooms/\(roomID)/playback", method: .post, body: Body(time: time, isPlaying: isPlaying))
+    }
+
+    func fetchPlayback(roomID: String) async throws -> (time: TimeInterval, isPlaying: Bool) {
+        struct PlaybackResponse: Decodable {
+            let currentTime: TimeInterval?
+            let isPlaying: Bool?
+        }
+        let resp: PlaybackResponse = try await api.request("rooms/\(roomID)/playback")
+        return (resp.currentTime ?? 0, resp.isPlaying ?? false)
+    }
 }

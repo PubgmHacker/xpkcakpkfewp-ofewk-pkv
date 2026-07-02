@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import bcrypt from "bcryptjs";
 import { prisma } from "../config/db.js";
-import { safeJSONParse } from "../utils/index.js";
 
 // ─── Validation Schemas ───────────────────────────────
 
@@ -16,15 +16,14 @@ const signInSchema = z.object({
   password: z.string().min(1, "Password is required"),
 });
 
-// ─── Simple password hashing (use bcrypt in production) ──
-// TODO: Replace with bcrypt for production
+// ─── Password hashing (bcrypt) ──
+
 async function hashPassword(password: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(password + "raveclone_salt_v1");
-  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-  return Array.from(new Uint8Array(hashBuffer))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
+  return bcrypt.hash(password, 12);
+}
+
+async function verifyPassword(password: string, hash: string): Promise<boolean> {
+  return bcrypt.compare(password, hash);
 }
 
 // ─── Routes ──────────────────────────────────────────
@@ -86,8 +85,13 @@ export async function authRoutes(fastify: FastifyInstance) {
       return reply.status(401).send({ error: "Invalid email or password" });
     }
 
-    const passwordHash = await hashPassword(body.password);
-    if (passwordHash !== user.passwordHash) {
+    // Guest accounts cannot sign in with password
+    if (user.passwordHash === "GUEST" || user.passwordHash.startsWith("SOCIAL:")) {
+      return reply.status(401).send({ error: "Use social login for this account" });
+    }
+
+    const valid = await verifyPassword(body.password, user.passwordHash);
+    if (!valid) {
       return reply.status(401).send({ error: "Invalid email or password" });
     }
 
@@ -137,6 +141,27 @@ export async function authRoutes(fastify: FastifyInstance) {
       await prisma.user.update({
         where: { id: user.id },
         data: { fcmToken: body.token },
+      });
+
+      return reply.send({ success: true });
+    }
+  );
+
+  // POST /api/auth/signout
+  fastify.post(
+    "/signout",
+    { preHandler: [fastify.authenticate] },
+    async (request, reply) => {
+      const user = request.user!;
+
+      // Update online status and clear FCM token
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          isOnline: false,
+          lastSeenAt: new Date(),
+          fcmToken: null,
+        },
       });
 
       return reply.send({ success: true });
